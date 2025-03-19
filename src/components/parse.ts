@@ -17,355 +17,388 @@
 // {!}: reset the current transformation.
 // {+! @! *!} +!: reset transform, @!: reset rotation, *!: reset scale.
 
-import { Group, Mat, Pt } from 'pts'
+// Larger-scale functions
+// text(string): render the given text
 
-export const parse = (source: string): Group[] => {
-  const curves: Group[] = []
-  let currentCurve: Group = new Group()
-  let lastPoint: Pt = new Pt(0, 0)
-  let scale: Pt = new Pt(1, 1)
-  let rotation = 0
-  let translation: Pt = new Pt(0, 0)
+import { Bound, Group, Mat, Pt } from 'pts'
+import { defaultFont } from './defaultFont'
 
-  // Helper to evaluate math expressions like "1/4"
-  const evalExpr = (expr: string): number => {
-    console.log('eval', expr)
-    if (expr.includes('/')) {
-      const [num, denom] = expr.split('/').map(Number)
-      return num / denom
+export class Parser {
+  curves: Group[] = []
+  currentCurve: Group = new Group()
+  lastPoint: Pt = new Pt(0, 0)
+  transform: { scale: Pt; rotation: number; translation: Pt } = {
+    scale: new Pt(1, 1),
+    rotation: 0,
+    translation: new Pt(0, 0)
+  }
+  font = defaultFont
+
+  reset() {
+    this.curves = []
+    this.transform = {
+      scale: new Pt(1, 1),
+      rotation: 0,
+      translation: new Pt(0, 0)
     }
-    return parseFloat(expr)
   }
 
-  // Apply current transformation to a point
-  const applyTransform = (point: Pt): Pt => {
-    return point
-      .scale(scale)
-      .rotate2D(rotation * Math.PI * 2)
-      .add(translation)
-  }
-
-  // Parse point from string notation
-  const parsePoint = (notation: string, prevCurve?: Group) => {
-    notation = notation.trim()
-
-    // Intersection point syntax: <p
-    if (notation.startsWith('<')) {
-      if (!prevCurve || prevCurve.length < 2) {
-        throw new Error('Intersection requires a previous curve')
+  log(slice: number = 0) {
+    const toFixed = (x: number) => {
+      const str = x.toFixed(2)
+      if (str.endsWith('00')) {
+        return String(Math.floor(x))
+      } else {
+        return str
       }
-
-      const p = evalExpr(notation.substring(1))
-      const idx = Math.floor(p * (prevCurve.length - 1))
-      const frac = p * (prevCurve.length - 1) - idx
-
-      if (idx >= prevCurve.length - 1) {
-        return prevCurve[prevCurve.length - 1]
-      }
-
-      const p1 = prevCurve[idx]
-      const p2 = prevCurve[idx + 1]
-
-      return new Pt([
-        p1[0] + (p2[0] - p1[0]) * frac,
-        p1[1] + (p2[1] - p1[1]) * frac
-      ])
     }
-
-    // Polar coordinates: @t,r
-    if (notation.startsWith('@')) {
-      const parts = notation.substring(1).split(',')
-      const theta = evalExpr(parts[0])
-      const radius = parts.length > 1 ? evalExpr(parts[1]) : 1
-
-      const thetaRad = theta * Math.PI * 2 // Convert 0-1 to radians
-      return new Pt([
-        lastPoint[0] + radius * Math.cos(thetaRad),
-        lastPoint[1] + radius * Math.sin(thetaRad)
-      ])
-    }
-
-    // Relative coordinates: +x,y
-    if (notation.startsWith('+')) {
-      const parts = notation.substring(1).split(',')
-      const x = evalExpr(parts[0])
-      const y = evalExpr(parts[1])
-
-      return new Pt([lastPoint[0] + x, lastPoint[1] + y])
-    }
-
-    // Absolute coordinates: x,y
-    const parts = notation.split(',')
-    const x = evalExpr(parts[0])
-    const y = evalExpr(parts[1])
-
-    return new Pt(x, y)
-  }
-
-  const mapCurve = (points: Group, start: Pt, end: Pt): Pt[] => {
-    let usedEnd =
-      end[0] === start[0] && end[1] === start[1]
-        ? [start[0] + 1, start[1] + 0]
-        : end
-    // Handle both single point and array of points
-    const curvePoints = points
-
-    // Calculate the vector from start to end
-    const dx = usedEnd[0] - start[0]
-    const dy = usedEnd[1] - start[1]
-    const distance = Math.sqrt(dx * dx + dy * dy)
-
-    // Calculate the rotation angle
-    const angle = Math.atan2(dy, dx)
-
-    console.log('map', points, start, end, distance, angle)
-
-    const mappedCurve = [
-      start,
-      ...points.map(x => x.rotate2D(angle, start).scale(1 / distance, start)),
-      end
-    ]
-    return mappedCurve
-  }
-
-  // Predefined functions
-  const functions: Record<
-    string,
-    (start: Pt, end: Pt, h?: number, w?: number) => Pt[]
-  > = {
-    '3': (start, end, h = 0, w = 0) =>
-      mapCurve(Group.fromArray([[0.5, h]]), start, end),
-    '4': (start, end, h = 0, w = 0) =>
-      mapCurve(
-        Group.fromArray([
-          [-w, h],
-          [1 + w, h]
-        ]),
-        start,
-        end
-      ),
-    '5': (start, end, h = 0, w = 0) =>
-      mapCurve(
-        Group.fromArray([
-          [-w, 0.5 * h],
-          [0.5, h],
-          [1 + w, 0.5 * h]
-        ]),
-        start,
-        end
-      ),
-    '6': (start, end, h = 0, w = 0) =>
-      mapCurve(
-        Group.fromArray([
-          [-w, 0],
-          [-w, h],
-          [1 + w, h],
-          [1 + w, 0]
-        ]),
-        start,
-        end
+    return this.curves
+      .slice(slice)
+      .map(
+        curve =>
+          `[${curve.map(x => `${toFixed(x[0])},${toFixed(x[1])}`).join(' ')}]`
       )
+      .join('\n')
   }
 
-  // Tokenize the source
-  let tokens: string[] = []
-  let current = ''
-  let inBrackets = 0
-  let inParentheses = 0
-
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i]
-
-    if (char === '[') inBrackets++
-    else if (char === ']') inBrackets--
-    else if (char === '(') inParentheses++
-    else if (char === ')') inParentheses--
-
-    if (
-      (char === ' ' || char === '\n') &&
-      inBrackets === 0 &&
-      inParentheses === 0
-    ) {
-      if (current) {
-        tokens.push(current)
-        current = ''
+  parse(source: string) {
+    // Helper to evaluate math expressions like "1/4"
+    const evalExpr = (expr: string): number => {
+      if (expr.includes('/')) {
+        const [num, denom] = expr.split('/').map(Number)
+        return num / denom
       }
-    } else {
-      current += char
+      return parseFloat(expr)
     }
-  }
+    const evalPoint = (
+      point: string,
+      defaultValue: boolean | number = true
+    ): Pt => {
+      const parts = point.split(',')
+      if (parts.length === 1) {
+        if (defaultValue === false)
+          throw new Error(`Incomplete point: ${point}`)
+        return new Pt(
+          evalExpr(parts[0]),
+          defaultValue === true ? evalExpr(parts[0]) : defaultValue
+        )
+      }
+      return new Pt(evalExpr(parts[0]), evalExpr(parts[1]))
+    }
 
-  if (current) tokens.push(current)
+    // Parse point from string notation
+    const parsePoint = (notation: string, prevCurve?: Group) => {
+      const applyTransform = (point: Pt, relative: boolean): Pt => {
+        point
+          .scale(this.transform.scale, !relative ? [0, 0] : this.lastPoint)
+          .rotate2D(
+            this.transform.rotation * Math.PI * 2,
+            !relative ? [0, 0] : this.lastPoint
+          )
+        if (!relative) point.add(this.transform.translation)
+        return point
+      }
 
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i]
+      notation = notation.trim()
 
-    // Parse transformation
-    if (token.startsWith('{') && token.endsWith('}')) {
+      let point: Pt
+      // Intersection point syntax: <p
+      if (notation.startsWith('<')) {
+        if (!prevCurve || prevCurve.length < 2) {
+          throw new Error('Intersection requires a previous curve')
+        }
+
+        let p = evalExpr(notation.substring(1))
+        const idx = Math.floor(p * (prevCurve.length - 1))
+        const frac = p * (prevCurve.length - 1) - idx
+
+        if (idx >= prevCurve.length - 1) {
+          return prevCurve[prevCurve.length - 1]
+        }
+
+        const p1 = prevCurve[idx]
+        const p2 = prevCurve[idx + 1]
+
+        point = new Pt([
+          p1[0] + (p2[0] - p1[0]) * frac,
+          p1[1] + (p2[1] - p1[1]) * frac
+        ])
+      }
+
+      // Polar coordinates: @t,r
+      else if (notation.startsWith('@')) {
+        const [theta, radius] = evalPoint(notation.substring(1), false)
+        const thetaRad = theta * Math.PI * 2 // Convert 0-1 to radians
+
+        point = applyTransform(
+          this.lastPoint.$add(radius, 0).rotate2D(thetaRad, this.lastPoint),
+          true
+        )
+      }
+
+      // Relative coordinates: +x,y
+      else if (notation.startsWith('+')) {
+        point = applyTransform(
+          this.lastPoint.$add(evalPoint(notation.substring(1))),
+          true
+        )
+      } else {
+        // Absolute coordinates: x,y
+        point = applyTransform(evalPoint(notation), false)
+      }
+      this.lastPoint = point
+      return point
+    }
+
+    const mapCurve = (points: Group, start: Pt, end: Pt) => {
+      let usedEnd =
+        end[0] === start[0] && end[1] === start[1] ? start.$add(1, 0) : end
+
+      const angle = usedEnd.$subtract(start).angle()
+      const distance = usedEnd.$subtract(start).magnitude()
+
+      const mappedCurve = [
+        start,
+        ...points
+          .clone()
+          .scale(1 / distance, [0, 0])
+          .rotate2D(angle, [0, 0])
+          .add(start),
+        end
+      ]
+      this.currentCurve.push(...mappedCurve)
+    }
+
+    const parseArgs = (args: string[]) => {
+      const startPoint = parsePoint(
+        args[0],
+        this.curves.length > 0 ? this.curves[this.curves.length - 1] : undefined
+      )
+      const endPoint = parsePoint(
+        args[1],
+        this.curves.length > 0 ? this.curves[this.curves.length - 1] : undefined
+      )
+
+      let h = 0,
+        w = 0
+      if (args.length >= 3) {
+        const hwParts = args[2].split(',')
+        h = evalExpr(hwParts[0])
+        w = hwParts.length > 1 ? evalExpr(hwParts[1]) : 0
+      }
+
+      return [startPoint, endPoint, h, w] as [Pt, Pt, number, number]
+    }
+
+    // Predefined functions
+    const functions: Record<string, (args: string[]) => void> = {
+      log: args => {
+        const slice = Number(args[0] || '0')
+        postMessage({ log: this.log(slice) })
+      },
+      within: args => {
+        const point0 = parsePoint(args[0])
+        const point1 = parsePoint(args[1])
+        const slice = Number(args[2] ?? '0')
+        const bounds = new Group(
+          ...this.curves.slice(slice).flat()
+        ).boundingBox()
+        const sub = bounds[0].$subtract(point0)
+        this.curves
+          .slice(slice)
+          .forEach(curve =>
+            curve
+              .subtract(sub)
+              .scale(
+                Math.min(
+                  (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
+                  (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
+                ),
+                point0
+              )
+          )
+      },
+      text: args => {
+        const text = args.join(' ')
+        this.parse(
+          text
+            .split('')
+            .map(x => this.font[x])
+            .filter(Boolean)
+            .join(' ')
+        )
+      },
+      '3': args => {
+        const [start, end, h] = parseArgs(args)
+        return mapCurve(Group.fromArray([[0.5, h]]), start, end)
+      },
+      '4': args => {
+        const [start, end, h, w] = parseArgs(args)
+        return mapCurve(
+          Group.fromArray([
+            [-w, h],
+            [1 + w, h]
+          ]),
+          start,
+          end
+        )
+      },
+      '5': args => {
+        const [start, end, h, w] = parseArgs(args)
+        return mapCurve(
+          Group.fromArray([
+            [-w, 0.5 * h],
+            [0.5, h],
+            [1 + w, 0.5 * h]
+          ]),
+          start,
+          end
+        )
+      },
+      '6': args => {
+        const [start, end, h, w] = parseArgs(args)
+        return mapCurve(
+          Group.fromArray([
+            [-w, 0],
+            [-w, h],
+            [1 + w, h],
+            [1 + w, 0]
+          ]),
+          start,
+          end
+        )
+      }
+    }
+
+    const parseTransform = (token: string) => {
+      // { ...transforms }
       const transformStr = token.substring(1, token.length - 1)
       const transforms = transformStr.split(' ')
 
       transforms.forEach(transform => {
         if (transform === '!') {
           // Reset all transformations
-          scale.set([1, 1])
-          rotation = 0
-          translation.set([0, 0])
+          this.transform.scale.set([1, 1])
+          this.transform.rotation = 0
+          this.transform.translation.set([0, 0])
         } else if (transform.startsWith('*!')) {
           // Reset scale
-          scale.set([1, 1])
+          this.transform.scale.set([1, 1])
         } else if (transform.startsWith('@!')) {
           // Reset rotation
-          rotation = 0
+          this.transform.rotation = 0
         } else if (transform.startsWith('+!')) {
           // Reset translation
-          translation.set([0, 0])
+          this.transform.translation.set([0, 0])
         } else if (transform.startsWith('*')) {
           // Scale
-          const parts = transform.substring(1).split(',')
-          if (parts.length === 1) {
-            const s = evalExpr(parts[0])
-            scale.set([s, s])
-          } else {
-            scale.set([evalExpr(parts[0]), evalExpr(parts[1])])
-          }
+          this.transform.scale.multiply(evalPoint(transform.substring(1)))
         } else if (transform.startsWith('@')) {
           // Rotation
-          rotation = evalExpr(transform.substring(1))
+          this.transform.rotation += evalExpr(transform.substring(1))
         } else if (transform.startsWith('+')) {
           // Translation
-          const parts = transform.substring(1).split(',')
-          translation.set([evalExpr(parts[0]), evalExpr(parts[1])])
+          this.transform.translation.add(evalPoint(transform.substring(1)))
         }
       })
-
-      continue
     }
 
-    // Parse points definition
-    if (token.startsWith('[')) {
-      if (currentCurve.length > 0) {
-        curves.push(currentCurve)
+    // Tokenize the source
+    let tokens: string[] = []
+    let current = ''
+    let inBrackets = 0
+    let inParentheses = 0
+    let inBraces = 0
+
+    for (let i = 0; i < source.length; i++) {
+      const char = source[i]
+
+      if (char === '[') inBrackets++
+      else if (char === ']') inBrackets--
+      else if (char === '(') inParentheses++
+      else if (char === ')') inParentheses--
+      else if (char === '{') inBraces++
+      else if (char === '}') inBraces--
+
+      if (
+        (char === ' ' || char === '\n') &&
+        inBrackets === 0 &&
+        inParentheses === 0 &&
+        inBraces === 0
+      ) {
+        if (current) {
+          tokens.push(current)
+          current = ''
+        }
+      } else {
+        current += char
+      }
+    }
+
+    if (current) tokens.push(current)
+
+    for (let i = 0; i < tokens.length; i++) {
+      let token = tokens[i].trim()
+      // Parse transformation
+      if (token.startsWith('{') && token.endsWith('}')) {
+        parseTransform(token)
+        continue
       }
 
-      currentCurve = new Group()
-      const pointsStr = token.substring(1, token.length - 1)
-      const pointsTokens = pointsStr.split(' ')
+      // curve additions
 
-      pointsTokens.forEach(pointToken => {
-        if (!pointToken.trim()) return
-
-        const point = parsePoint(
-          pointToken,
-          curves.length > 0 ? curves[curves.length - 1] : undefined
-        )
-        const transformedPoint = applyTransform(point)
-        currentCurve.push(transformedPoint)
-        lastPoint = transformedPoint
-      })
-
-      continue
-    }
-
-    // Parse add points to current curve
-    if (token === '+') {
-      continue // Just a continuation marker, handled by the next token
-    }
-
-    // Parse add points
-    if (token.startsWith('+[')) {
-      const pointsStr = token.substring(2, token.length - 1)
-      const pointsTokens = pointsStr.split(' ')
-
-      pointsTokens.forEach(pointToken => {
-        if (!pointToken.trim()) return
-
-        const point = parsePoint(
-          pointToken,
-          curves.length > 0 ? curves[curves.length - 1] : undefined
-        )
-        const transformedPoint = applyTransform(point)
-        currentCurve.push(transformedPoint)
-        lastPoint = transformedPoint
-      })
-
-      continue
-    }
-
-    // Parse function call
-    const functionMatch = token.match(/^(\d+)\((.*?)\)(?:\+(.*))?$/)
-    if (functionMatch) {
-      const functionName = functionMatch[1]
-      const argsStr = functionMatch[2]
-      const addPoints = functionMatch[3]
-
-      // Parse function arguments
-      const args = argsStr.split(' ').filter(Boolean)
-
-      if (args.length >= 2) {
-        const startPoint = parsePoint(
-          args[0],
-          curves.length > 0 ? curves[curves.length - 1] : undefined
-        )
-        const endPoint = parsePoint(
-          args[1],
-          curves.length > 0 ? curves[curves.length - 1] : undefined
-        )
-        const transformedStart = applyTransform(startPoint)
-        const transformedEnd = applyTransform(endPoint)
-
-        let h = 0,
-          w = 0
-        if (args.length >= 3) {
-          const hwParts = args[2].split(',')
-          h = evalExpr(hwParts[0])
-          w = hwParts.length > 1 ? evalExpr(hwParts[1]) : 0
+      if (token.startsWith('+')) {
+        token = token.substring(1)
+      } else {
+        if (this.currentCurve.length > 0) {
+          this.curves.push(this.currentCurve)
+          this.currentCurve = new Group()
         }
+      }
 
-        if (functions[functionName]) {
-          if (currentCurve.length > 0) {
-            curves.push(currentCurve)
-            currentCurve = new Group()
-          }
+      // Parse points definition
+      if (token.startsWith('[')) {
+        const pointsStr = token.substring(1, token.length - 1)
+        const pointsTokens = pointsStr.split(' ')
 
-          const functionPoints = functions[functionName](
-            transformedStart,
-            transformedEnd,
-            h,
-            w
+        pointsTokens.forEach(pointToken => {
+          if (!pointToken.trim()) return
+
+          const point = parsePoint(
+            pointToken,
+            this.curves.length > 0
+              ? this.curves[this.curves.length - 1]
+              : undefined
           )
-          currentCurve.push(...functionPoints)
-          lastPoint = functionPoints[functionPoints.length - 1]
-        }
+          this.currentCurve.push(point)
+        })
+
+        continue
       }
 
-      // Handle add points if present
-      if (addPoints) {
-        if (addPoints.startsWith('[')) {
-          const pointsStr = addPoints.substring(1, addPoints.length - 1)
-          const pointsTokens = pointsStr.split(' ')
+      // Parse function call
+      const functionCall = token.trim().match(/^(\w+)\((.*?)\)$/)
+      if (functionCall) {
+        const functionName = functionCall[1]
+        const argsStr = functionCall[2]
 
-          pointsTokens.forEach(pointToken => {
-            if (!pointToken.trim()) return
-
-            const point = parsePoint(
-              pointToken,
-              curves.length > 0 ? curves[curves.length - 1] : undefined
-            )
-            const transformedPoint = applyTransform(point)
-            currentCurve.push(transformedPoint)
-            lastPoint = transformedPoint
-          })
-        }
+        // Parse function arguments
+        const args = argsStr.split(' ').filter(Boolean)
+        if (!functions[functionName])
+          throw new Error(
+            `unknown function: ${functionName} with args ${argsStr}`
+          )
+        functions[functionName](args)
+        continue
       }
-
-      continue
     }
+
+    // if (this.currentCurve.length > 0) {
+    //   this.curves.push(this.currentCurve)
+    // }
+
+    return this.curves
   }
 
-  if (currentCurve.length > 0) {
-    curves.push(currentCurve)
-  }
-
-  return curves
+  constructor() {}
 }

@@ -1,17 +1,8 @@
-import { useRef, useEffect } from 'react'
-import {
-  CanvasTexture,
-  OrthographicCamera,
-  PostProcessing,
-  Scene,
-  Texture,
-  WebGPURenderer
-} from 'three/webgpu'
-import { pass, texture, vec4 } from 'three/tsl'
+import { useEffect, useRef } from 'react'
+import { texture } from 'three/tsl'
+import { PostProcessing, Texture, WebGPURenderer } from 'three/webgpu'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
-import { parse } from './parse'
-import { defaultFont } from './defaultFont'
 
 export default function AsemicApp({ source }: { source: string }) {
   const canvas = useRef<HTMLCanvasElement>(null!)
@@ -22,8 +13,15 @@ export default function AsemicApp({ source }: { source: string }) {
     worker.onmessage = evt => {
       const imageBitmap = evt.data.bitmap
       if (imageBitmap instanceof ImageBitmap) {
+        console.log('bitmap', imageBitmap)
+
         thisTexture.image = imageBitmap
         thisTexture.needsUpdate = true
+      }
+      if (evt.data.log) {
+        console.log(
+          ...(evt.data.log instanceof Array ? evt.data.log : [evt.data.log])
+        )
       }
     }
 
@@ -36,10 +34,11 @@ export default function AsemicApp({ source }: { source: string }) {
       renderer.setAnimationLoop(time => {
         postProcessing.render()
       })
+      worker.postMessage({
+        curves: source
+      })
     })
   })
-
-  console.log(parse(defaultFont['a']))
 
   return (
     <div
