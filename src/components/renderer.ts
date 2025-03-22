@@ -19,21 +19,24 @@ export default class Renderer {
 
       if (curve.length == 1) {
       } else if (curve.length == 2) {
-        for (let side = 0; side < 2; side++) {
-          // ctx.beginPath()
-          ctx.moveTo(curve.at(0).x, curve.at(0).y)
-          const normal = curve
-            .at(1)
-            .$subtract(curve.at(0))
-            .rotate2D(0.25 * Math.PI * 2)
-            .unit()
-            .scale(curve.at(1).thickness / w)
+        // ctx.beginPath()
+        const normal = curve
+          .at(1)
+          .$subtract(curve.at(0))
+          .rotate2D(0.25 * Math.PI * 2)
+          .unit()
+          .scale(curve.at(1).thickness / 2 / w)
+        const p0 = curve.at(0).clone()
+        p0.add(normal)
+        ctx.moveTo(p0.x, p0.y)
 
-          const p1 = curve.at(1).clone()
-          if (side) p1.add(normal)
-          else p1.subtract(normal)
-          ctx.lineTo(p1.x, p1.y)
-        }
+        const p1 = curve.at(1).clone()
+        p1.add(normal)
+        ctx.lineTo(p1.x, p1.y)
+        p1.subtract(normal.clone().scale(2))
+        ctx.lineTo(p1.x, p1.y)
+        p0.subtract(normal.clone().scale(2))
+        ctx.lineTo(p0.x, p0.y)
       } else {
         const p0 = curve.at(0).clone()
         const n0 = curve
@@ -41,7 +44,7 @@ export default class Renderer {
           .$subtract(curve.at(0))
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
-          .scale(curve.at(0).thickness / w)
+          .scale(curve.at(0).thickness / 2 / w)
         p0.add(n0)
         ctx.moveTo(p0.x, p0.y)
 
@@ -59,7 +62,10 @@ export default class Renderer {
             .rotate2D(0.25 * Math.PI * 2)
             .unit()
             .scale(
-              (curve.at(i + 1).thickness + curve.at(i + 2).thickness) / 2 / w
+              (curve.at(i + 1).thickness + curve.at(i + 2).thickness) /
+                2 /
+                2 /
+                w
             )
           p2.add(n2)
           const p1 = curve.at(i + 1).clone()
@@ -68,7 +74,7 @@ export default class Renderer {
             .$subtract(curve.at(i))
             .rotate2D(0.25 * Math.PI * 2)
             .unit()
-            .scale(curve.at(i + 1).thickness / w)
+            .scale(curve.at(i + 1).thickness / 2 / w)
           p1.add(n1)
 
           // The curve is given in [x,y] points with quadratic curves drawn between them. For each pair [p1 p2], the first control point is p1, and the second control point is (p1 + p2) / 2.
@@ -76,7 +82,7 @@ export default class Renderer {
           ctx.quadraticCurveTo(p1.x, p1.y, p2.x, p2.y)
         }
         for (let i = 0; i <= curve.length - 3; i++) {
-          drawCurve(curve, i, false)
+          drawCurve(curve, i)
         }
         const reversedCurve = new AsemicGroup(...curve.reverse())
         const pEnd = reversedCurve.at(0).clone()
@@ -85,11 +91,11 @@ export default class Renderer {
           .$subtract(reversedCurve.at(0))
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
-          .scale(reversedCurve.at(0).thickness / w)
+          .scale(reversedCurve.at(0).thickness / 2 / w)
         pEnd.add(nEnd)
         ctx.lineTo(pEnd.x, pEnd.y)
         for (let i = 0; i <= curve.length - 3; i++) {
-          drawCurve(reversedCurve, i, false)
+          drawCurve(reversedCurve, i)
         }
       }
       ctx.fill()
