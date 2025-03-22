@@ -6,7 +6,8 @@ export default class Renderer {
     let { ctx } = this
     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
     ctx.resetTransform()
-    ctx.scale(ctx.canvas.width, ctx.canvas.width)
+    ctx.scale(ctx.canvas.width, -ctx.canvas.width)
+    ctx.translate(0, -1)
     ctx.strokeStyle = 'white'
     ctx.lineWidth = 2 / ctx.canvas.width
 

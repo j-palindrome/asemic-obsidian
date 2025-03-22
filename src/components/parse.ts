@@ -87,7 +87,8 @@ export class Parser {
     }
 
     // Parse point from string notation
-    const parsePoint = (notation: string, prevCurve?: Group) => {
+    const parsePoint = (notation: string) => {
+      const prevCurve = this.curves[this.curves.length - 1]
       const applyTransform = (point: Pt, relative: boolean): Pt => {
         point
           .scale(this.transform.scale, !relative ? [0, 0] : this.lastPoint)
@@ -161,7 +162,7 @@ export class Parser {
         start,
         ...points
           .clone()
-          .scale(1 / distance, [0, 0])
+          .scale([distance, 1], [0, 0])
           .rotate2D(angle, [0, 0])
           .add(start),
         end
@@ -170,14 +171,8 @@ export class Parser {
     }
 
     const parseArgs = (args: string[]) => {
-      const startPoint = parsePoint(
-        args[0],
-        this.curves.length > 0 ? this.curves[this.curves.length - 1] : undefined
-      )
-      const endPoint = parsePoint(
-        args[1],
-        this.curves.length > 0 ? this.curves[this.curves.length - 1] : undefined
-      )
+      const startPoint = parsePoint(args[0])
+      const endPoint = parsePoint(args[1])
 
       let h = 0,
         w = 0
@@ -225,12 +220,12 @@ export class Parser {
             .split('')
             .map(x => this.font[x])
             .filter(Boolean)
-            .join(' ')
+            .join(' {+.2,0} ')
         )
       },
       '3': args => {
         const [start, end, h] = parseArgs(args)
-        return mapCurve(Group.fromArray([[0.5, h]]), start, end)
+        return mapCurve(Group.fromArray([[0.5, h * 2]]), start, end)
       },
       '4': args => {
         const [start, end, h, w] = parseArgs(args)
@@ -247,9 +242,9 @@ export class Parser {
         const [start, end, h, w] = parseArgs(args)
         return mapCurve(
           Group.fromArray([
-            [-w, 0.5 * h],
+            [-w, h * 0.5],
             [0.5, h],
-            [1 + w, 0.5 * h]
+            [1 + w, h * 0.5]
           ]),
           start,
           end
@@ -267,6 +262,21 @@ export class Parser {
           start,
           end
         )
+      },
+      circle: args => {
+        const center = parsePoint(args[0])
+        const [w, h] = evalPoint(args[1])
+          .scale(this.transform.scale)
+          .rotate2D(this.transform.rotation * Math.PI * 2)
+        const points = Group.fromArray([
+          [w, 0],
+          [w, h],
+          [-w, h],
+          [-w, -h],
+          [w, -h],
+          [w, 0]
+        ]).add(center)
+        this.currentCurve.push(...points)
       }
     }
 
@@ -298,7 +308,11 @@ export class Parser {
           this.transform.rotation += evalExpr(transform.substring(1))
         } else if (transform.startsWith('+')) {
           // Translation
-          this.transform.translation.add(evalPoint(transform.substring(1)))
+          this.transform.translation.add(
+            evalPoint(transform.substring(1))
+              .scale(this.transform.scale)
+              .rotate2D(this.transform.rotation * Math.PI * 2)
+          )
         }
       })
     }
@@ -310,8 +324,12 @@ export class Parser {
     let inParentheses = 0
     let inBraces = 0
 
-    for (let i = 0; i < source.length; i++) {
-      const char = source[i]
+    const parsedString = source
+      .split('\n')
+      .filter(x => !/^\s*\/\//.test(x))
+      .join('\n')
+    for (let i = 0; i < parsedString.length; i++) {
+      const char = parsedString[i]
 
       if (char === '[') inBrackets++
       else if (char === ']') inBrackets--
@@ -364,12 +382,7 @@ export class Parser {
         pointsTokens.forEach(pointToken => {
           if (!pointToken.trim()) return
 
-          const point = parsePoint(
-            pointToken,
-            this.curves.length > 0
-              ? this.curves[this.curves.length - 1]
-              : undefined
-          )
+          const point = parsePoint(pointToken)
           this.currentCurve.push(point)
         })
 

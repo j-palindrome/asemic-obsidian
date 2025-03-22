@@ -1,6 +1,4 @@
 import { useEffect, useRef } from 'react'
-import { texture } from 'three/tsl'
-import { PostProcessing, Texture, WebGPURenderer } from 'three/webgpu'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
 
@@ -9,14 +7,16 @@ export default function AsemicApp({ source }: { source: string }) {
 
   useEffect(() => {
     const worker = AsemicWorker() as Worker
-    const thisTexture = new Texture()
+    // const thisTexture = new Texture()
+    const ctx = canvas.current.getContext('bitmaprenderer')!
     worker.onmessage = evt => {
       const imageBitmap = evt.data.bitmap
       if (imageBitmap instanceof ImageBitmap) {
-        console.log('bitmap', imageBitmap)
-
-        thisTexture.image = imageBitmap
-        thisTexture.needsUpdate = true
+        ctx.transferFromImageBitmap(imageBitmap)
+        imageBitmap.close()
+        // thisTexture.image = imageBitmap
+        // thisTexture.needsUpdate = true
+        // postProcessing.render()
       }
       if (evt.data.log) {
         console.log(
@@ -25,19 +25,20 @@ export default function AsemicApp({ source }: { source: string }) {
       }
     }
 
-    const renderer = new WebGPURenderer({
-      canvas: canvas.current
+    worker.postMessage({
+      curves: source
     })
-    const thisPass = texture(thisTexture)
-    const postProcessing = new PostProcessing(renderer, thisPass)
-    renderer.init().then(() => {
-      renderer.setAnimationLoop(time => {
-        postProcessing.render()
-      })
-      worker.postMessage({
-        curves: source
-      })
-    })
+
+    // const renderer = new WebGPURenderer({
+    //   canvas: canvas.current
+    // })
+    // const thisPass = texture(thisTexture)
+    // const postProcessing = new PostProcessing(renderer, thisPass)
+    // renderer.init().then(() => {
+    //   worker.postMessage({
+    //     curves: source
+    //   })
+    // })
   })
 
   return (
