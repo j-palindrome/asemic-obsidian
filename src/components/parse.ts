@@ -22,15 +22,23 @@
 
 import { Bound, Group, Mat, Pt } from 'pts'
 import { defaultFont } from './defaultFont'
+import { lerp } from 'three/src/math/MathUtils.js'
 
 export class Parser {
+  startTime = performance.now()
   curves: Group[] = []
   currentCurve: Group = new Group()
   lastPoint: Pt = new Pt(0, 0)
-  transform: { scale: Pt; rotation: number; translation: Pt } = {
+  transform: {
+    scale: Pt
+    rotation: number
+    translation: Pt
+    progress: number | (() => number)
+  } = {
     scale: new Pt(1, 1),
     rotation: 0,
-    translation: new Pt(0, 0)
+    translation: new Pt(0, 0),
+    progress: 0
   }
   font = defaultFont
 
@@ -39,7 +47,8 @@ export class Parser {
     this.transform = {
       scale: new Pt(1, 1),
       rotation: 0,
-      translation: new Pt(0, 0)
+      translation: new Pt(0, 0),
+      progress: 0
     }
   }
 
@@ -62,10 +71,35 @@ export class Parser {
   }
 
   parse(source: string) {
+    const time = performance.now() - this.startTime
     // Helper to evaluate math expressions like "1/4"
-    const evalExpr = (expr: string): number => {
+    const evalExpr = (expr: string) => {
+      if (!expr) return undefined
+      if (expr.includes('t')) {
+        // vary according to t
+        expr = expr.replace('t', `${Math.floor(time)}`)
+      }
+      if (expr.includes('~')) {
+        // 1.1~2.4
+        const [firstPoint, lastPoint] = expr.split('~').map(evalExpr)
+        return lerp(
+          firstPoint,
+          lastPoint,
+          typeof this.transform.progress === 'function'
+            ? this.transform.progress()
+            : this.transform.progress
+        )
+      }
+      if (expr.includes('+')) {
+        const [num, denom] = expr.split('+').map(evalExpr)
+        return num + denom
+      }
+      if (expr.includes('*')) {
+        const [num, denom] = expr.split('*').map(evalExpr)
+        return num / denom
+      }
       if (expr.includes('/')) {
-        const [num, denom] = expr.split('/').map(Number)
+        const [num, denom] = expr.split('/').map(evalExpr)
         return num / denom
       }
       return parseFloat(expr)
@@ -313,6 +347,26 @@ export class Parser {
               .scale(this.transform.scale)
               .rotate2D(this.transform.rotation * Math.PI * 2)
           )
+        } else {
+          const keyCall = transform.match(/(\w+):(\w+)/)
+          if (keyCall?.groups) {
+            const key = keyCall.groups[1]
+            const value = keyCall.groups[2]
+            switch (this.transform[key]) {
+              default:
+                if (value.includes(',')) {
+                  const list = value.split(',')
+                  if (list.length > 2) {
+                    this.transform[key] = new Pt(value.split(',').map(evalExpr))
+                  } else {
+                    this.transform[key] = evalPoint(value)
+                  }
+                } else {
+                  this.transform[key] = evalExpr(value)
+                }
+                break
+            }
+          }
         }
       })
     }
