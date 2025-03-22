@@ -9,7 +9,8 @@ type PtLikeIterable = AsemicGroupLike | AsemicPtLike[] | Iterable<AsemicPtLike>
 // @ts-ignore
 export class AsemicGroup extends Group {
   at(i: number): AsemicPt {
-    return super[i] as AsemicPt
+    if (i < 0) i += this.length
+    return this[i] as AsemicPt
   }
 
   //     get p1(): Pt;
@@ -21,8 +22,13 @@ export class AsemicGroup extends Group {
   //     get q3(): Pt;
   //     get q4(): Pt;
   clone(): AsemicGroup {
-    return AsemicGroup.fromPointArray(this)
+    return new AsemicGroup(...(this as unknown as AsemicPt[]))
   }
+
+  reverse(): AsemicPt[] {
+    return super.reverse() as AsemicPt[]
+  }
+
   split(chunkSize: number, stride?: number, loopBack?: boolean): AsemicGroup[] {
     return super.split(chunkSize, stride, loopBack) as AsemicGroup[]
   }
@@ -62,8 +68,8 @@ export class AsemicGroup extends Group {
     return super.$zip(defaultValue, useLongest) as AsemicGroup
   }
 
-  slice(start?: number, end?: number): AsemicPt[] {
-    return super.slice(start, end) as AsemicPt[]
+  aSlice(start?: number, end?: number): AsemicGroup {
+    return new AsemicGroup(...(super.slice(start, end) as AsemicPt[]))
   }
 
   flat<A, D extends number = 1>(
@@ -72,6 +78,13 @@ export class AsemicGroup extends Group {
   ): FlatArray<A, D>[] {
     // @ts-ignore
     return super.flat(depth) as unknown as AsemicPt[]
+  }
+
+  map<U>(
+    callbackfn: (value: AsemicPt, index: number, array: AsemicPt[]) => U,
+    thisArg?: any
+  ): U[] {
+    return super.map(callbackfn, thisArg)
   }
 
   static fromArray(list: PtLikeIterable) {

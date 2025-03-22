@@ -338,6 +338,7 @@ export class Parser {
       const transforms = transformStr.split(' ')
 
       transforms.forEach(transform => {
+        console.log('transform:', transform)
         if (transform === '!') {
           // Reset all transformations
           this.transform.scale.set([1, 1])
@@ -366,10 +367,10 @@ export class Parser {
               .rotate2D(this.transform.rotation * Math.PI * 2)
           )
         } else {
-          const keyCall = transform.match(/(\w+):(\w+)/)
-          if (keyCall?.groups) {
-            const key = keyCall.groups[1]
-            const value = keyCall.groups[2]
+          const keyCall = transform.match(/(\w+)\:(\w+)/)
+          if (keyCall) {
+            const key = keyCall[1]
+            const value = keyCall[2]
             switch (key) {
               default:
                 if (value.includes(',')) {
@@ -432,6 +433,7 @@ export class Parser {
 
     for (let i = 0; i < tokens.length; i++) {
       let token = tokens[i].trim()
+
       // Parse transformation
       if (token.startsWith('{') && token.endsWith('}')) {
         parseTransform(token)
