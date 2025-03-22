@@ -20,27 +20,34 @@
 // Larger-scale functions
 // text(string): render the given text
 
-import { Bound, Group, Mat, Pt } from 'pts'
+import { Bound, Color, Group, Mat, Pt } from 'pts'
 import { defaultFont } from './defaultFont'
 import { lerp } from 'three/src/math/MathUtils.js'
+import { AsemicGroup, AsemicPt } from './AsemicPt'
 
 export class Parser {
   startTime = performance.now()
-  curves: Group[] = []
-  currentCurve: Group = new Group()
-  lastPoint: Pt = new Pt(0, 0)
+  curves: AsemicGroup[] = []
+  currentCurve: AsemicGroup = new AsemicGroup()
   transform: {
     scale: Pt
     rotation: number
     translation: Pt
     progress: number | (() => number)
+    thickness: number | (() => number)
+    hsl: Color | (() => Color)
+    a: number | (() => number)
   } = {
     scale: new Pt(1, 1),
     rotation: 0,
     translation: new Pt(0, 0),
-    progress: 0
+    progress: 0,
+    thickness: 1,
+    hsl: new Color(1, 1, 1),
+    a: 1
   }
   font = defaultFont
+  lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
 
   reset() {
     this.curves = []
@@ -48,7 +55,10 @@ export class Parser {
       scale: new Pt(1, 1),
       rotation: 0,
       translation: new Pt(0, 0),
-      progress: 0
+      progress: 0,
+      thickness: 1,
+      hsl: new Color([1, 1, 1]),
+      a: 1
     }
   }
 
@@ -123,7 +133,7 @@ export class Parser {
     // Parse point from string notation
     const parsePoint = (notation: string) => {
       const prevCurve = this.curves[this.curves.length - 1]
-      const applyTransform = (point: Pt, relative: boolean): Pt => {
+      const applyTransform = (point: AsemicPt, relative: boolean): AsemicPt => {
         point
           .scale(this.transform.scale, !relative ? [0, 0] : this.lastPoint)
           .rotate2D(
@@ -131,12 +141,13 @@ export class Parser {
             !relative ? [0, 0] : this.lastPoint
           )
         if (!relative) point.add(this.transform.translation)
+
         return point
       }
 
       notation = notation.trim()
 
-      let point: Pt
+      let point: AsemicPt
       // Intersection point syntax: <p
       if (notation.startsWith('<')) {
         if (!prevCurve || prevCurve.length < 2) {
@@ -154,10 +165,11 @@ export class Parser {
         const p1 = prevCurve[idx]
         const p2 = prevCurve[idx + 1]
 
-        point = new Pt([
+        point = new AsemicPt(
+          this,
           p1[0] + (p2[0] - p1[0]) * frac,
           p1[1] + (p2[1] - p1[1]) * frac
-        ])
+        )
       }
 
       // Polar coordinates: @t,r
@@ -179,13 +191,13 @@ export class Parser {
         )
       } else {
         // Absolute coordinates: x,y
-        point = applyTransform(evalPoint(notation), false)
+        point = applyTransform(new AsemicPt(this, evalPoint(notation)), false)
       }
       this.lastPoint = point
       return point
     }
 
-    const mapCurve = (points: Group, start: Pt, end: Pt) => {
+    const mapCurve = (points: Group, start: AsemicPt, end: AsemicPt) => {
       let usedEnd =
         end[0] === start[0] && end[1] === start[1] ? start.$add(1, 0) : end
 
@@ -198,7 +210,8 @@ export class Parser {
           .clone()
           .scale([distance, 1], [0, 0])
           .rotate2D(angle, [0, 0])
-          .add(start),
+          .add(start)
+          .map(x => new AsemicPt(this, x)),
         end
       ]
       this.currentCurve.push(...mappedCurve)
@@ -216,7 +229,12 @@ export class Parser {
         w = hwParts.length > 1 ? evalExpr(hwParts[1]) : 0
       }
 
-      return [startPoint, endPoint, h, w] as [Pt, Pt, number, number]
+      return [startPoint, endPoint, h, w] as [
+        AsemicPt,
+        AsemicPt,
+        number,
+        number
+      ]
     }
 
     // Predefined functions
@@ -229,8 +247,8 @@ export class Parser {
         const point0 = parsePoint(args[0])
         const point1 = parsePoint(args[1])
         const slice = Number(args[2] ?? '0')
-        const bounds = new Group(
-          ...this.curves.slice(slice).flat()
+        const bounds = new AsemicGroup(
+          ...(this.curves.slice(slice).flat() as AsemicPt[])
         ).boundingBox()
         const sub = bounds[0].$subtract(point0)
         this.curves
@@ -310,7 +328,7 @@ export class Parser {
           [w, -h],
           [w, 0]
         ]).add(center)
-        this.currentCurve.push(...points)
+        this.currentCurve.push(...points.map(x => new AsemicPt(this, x)))
       }
     }
 
@@ -352,12 +370,15 @@ export class Parser {
           if (keyCall?.groups) {
             const key = keyCall.groups[1]
             const value = keyCall.groups[2]
-            switch (this.transform[key]) {
+            switch (key) {
               default:
                 if (value.includes(',')) {
                   const list = value.split(',')
                   if (list.length > 2) {
-                    this.transform[key] = new Pt(value.split(',').map(evalExpr))
+                    this.transform[key] = new AsemicPt(
+                      this,
+                      value.split(',').map(evalExpr)
+                    )
                   } else {
                     this.transform[key] = evalPoint(value)
                   }
@@ -424,7 +445,7 @@ export class Parser {
       } else {
         if (this.currentCurve.length > 0) {
           this.curves.push(this.currentCurve)
-          this.currentCurve = new Group()
+          this.currentCurve = new AsemicGroup()
         }
       }
 

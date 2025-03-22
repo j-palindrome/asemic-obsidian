@@ -12,6 +12,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.font) {
     parser.font = ev.data.font
   }
+  // test change
   if (ev.data.curves) {
     parser.reset()
     parser.parse(ev.data.curves)

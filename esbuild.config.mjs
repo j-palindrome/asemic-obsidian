@@ -18,7 +18,10 @@ let entryPoints = [`src/main.tsx`, `src/styles.css`]
 
 const plugins = [
   postcss(),
-  inlineWorkerPlugin(),
+  inlineWorkerPlugin({
+    sourcemap: 'inline',
+    keepNames: true
+  }),
   esBuildCopyStaticFiles({
     src: `manifest.json`,
     dest: `dist/manifest.json`,
@@ -65,10 +68,10 @@ const context = await esbuild.context({
   format: 'cjs',
   target: 'es2018',
   logLevel: 'info',
-  sourcemap: MODE === 'production' ? false : 'inline',
+  sourcemap: 'inline',
+  keepNames: true,
   treeShaking: true,
   outdir: 'dist',
-
   loader: {
     '.mp3': 'dataurl',
     '.svg': 'text',
@@ -77,9 +80,5 @@ const context = await esbuild.context({
   plugins
 })
 
-if (MODE === 'production') {
-  await context.rebuild()
-  process.exit(0)
-} else {
-  await context.watch()
-}
+await context.rebuild()
+process.exit(0)
