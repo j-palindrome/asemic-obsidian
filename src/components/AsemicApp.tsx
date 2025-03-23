@@ -11,7 +11,7 @@ export default function AsemicApp({ source }: { source: string }) {
 
   useEffect(() => {
     const worker = AsemicWorker() as Worker
-    const offscreenCanvas = new OffscreenCanvas(1920, 1920)
+    const offscreenCanvas = new OffscreenCanvas(1080, 1080)
     const thisTexture = new CanvasTexture(offscreenCanvas)
     thisTexture.flipY = false
 
@@ -32,19 +32,16 @@ export default function AsemicApp({ source }: { source: string }) {
           postProcessing.render()
         }
       }
-      if (source.includes('R') || source.includes('T')) {
-        renderer.setAnimationLoop(() => {
-          worker.postMessage({
-            source,
-            settings: { w: 1080 }
-          })
-        })
-      } else {
+      // worker.postMessage({
+      //   source,
+      //   settings: { w: offscreenCanvas.width }
+      // })
+      renderer.setAnimationLoop(() => {
         worker.postMessage({
           source,
-          settings: { w: offscreenCanvas.width }
+          settings: { w: 1080 }
         })
-      }
+      })
     })
     return () => {
       renderer.dispose()

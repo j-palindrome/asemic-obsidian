@@ -23,7 +23,7 @@
 import { Bound, Color, Group, Mat, Pt } from 'pts'
 import { defaultFont } from './defaultFont'
 import { lerp } from 'three/src/math/MathUtils.js'
-import { AsemicGroup, AsemicPt, Progress } from './AsemicPt'
+import { AsemicGroup, AsemicPt } from './AsemicPt'
 
 export class Parser {
   startTime = performance.now()
@@ -33,17 +33,21 @@ export class Parser {
     scale: Pt
     rotation: number
     translation: Pt
-    thickness: () => number
+    progress: number | (() => number)
+    thickness: number | (() => number)
+    hsl: Color | (() => Color)
+    a: number | (() => number)
   } = {
     scale: new Pt(1, 1),
     rotation: 0,
     translation: new Pt(0, 0),
-    thickness: () => 1
+    progress: 0,
+    thickness: 1,
+    hsl: new Color(1, 1, 1),
+    a: 1
   }
   font = defaultFont
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
-  progress = { point: 0, curve: 0, frame: 0 }
-  time = 0
 
   reset() {
     this.curves = []
@@ -51,9 +55,11 @@ export class Parser {
       scale: new Pt(1, 1),
       rotation: 0,
       translation: new Pt(0, 0),
-      thickness: () => 1
+      progress: 0,
+      thickness: 1,
+      hsl: new Color([1, 1, 1]),
+      a: 1
     }
-    this.time = performance.now() - this.startTime
   }
 
   log(slice: number = 0) {
@@ -174,29 +180,30 @@ export class Parser {
   }
 
   parse(source: string) {
+    this.reset()
+    const time = performance.now() - this.startTime
+
     // Helper to evaluate math expressions like "1/4"
     const evalExpr = (expr: string) => {
       if (!expr) return undefined
       if (expr.includes('T')) {
         // vary according to t
-        expr = expr.replace(/T/g, `${Math.floor(this.time) / 1000}`)
+        expr = expr.replace(/T/g, `${Math.floor(time) / 1000}`)
       }
       while (expr.includes('R')) {
         expr = expr.replace('R', `${Math.random().toFixed(3)}`)
       }
-      if (expr.includes('>')) {
-        // 1.1<T>2.4>3>4
-        // 0<T>1
-        const [firstPoint, fadeExpr, lastPoint] = expr
-          .split(/[<>]/g)
-          .map(evalExpr)
-        return lerp(firstPoint, lastPoint, fadeExpr)
+      if (expr.includes('~')) {
+        // 1.1~2.4
+        const [firstPoint, lastPoint] = expr.split('~').map(evalExpr)
+        return lerp(
+          firstPoint,
+          lastPoint,
+          typeof this.transform.progress === 'function'
+            ? this.transform.progress()
+            : this.transform.progress
+        )
       }
-      // if (expr.includes('~')) {
-      //   // 1.1~2.4
-      //   const [firstPoint, lastPoint] = expr.split('~').map(evalExpr)
-      //   return lerp(firstPoint, lastPoint, Math.random())
-      // }
       if (expr.includes('%')) {
         const [num, denom] = expr.split('%').map(evalExpr)
         return num % denom
@@ -232,8 +239,7 @@ export class Parser {
     }
 
     // Parse point from string notation
-    const parsePoint = (notation: string, progress?: Progress) => {
-      if (progress) Object.assign(progress, this.progress)
+    const parsePoint = (notation: string) => {
       const prevCurve = this.curves[this.curves.length - 1]
       const applyTransform = (point: AsemicPt, relative: boolean): AsemicPt => {
         point
@@ -243,6 +249,7 @@ export class Parser {
             !relative ? [0, 0] : this.lastPoint
           )
         if (!relative) point.add(this.transform.translation)
+
         return point
       }
 
@@ -312,10 +319,7 @@ export class Parser {
           .scale([distance, 1], [0, 0])
           .rotate2D(angle, [0, 0])
           .add(start)
-          .map((x, i) => {
-            this.progress.point = (i + 1) / (points.length + 2 - 1)
-            return new AsemicPt(this, x)
-          }),
+          .map(x => new AsemicPt(this, x)),
         end
       ]
       this.currentCurve.push(...mappedCurve)
@@ -348,8 +352,8 @@ export class Parser {
         postMessage({ log: this.log(slice) })
       },
       within: args => {
-        const point0 = parsePoint(args[0], { point: 0, frame: 0, curve: 0 })
-        const point1 = parsePoint(args[1], { point: 0, frame: 0, curve: 0 })
+        const point0 = parsePoint(args[0])
+        const point1 = parsePoint(args[1])
         const slice = Number(args[2] ?? '0')
         const bounds = new AsemicGroup(
           ...(this.curves.slice(slice).flat() as AsemicPt[])
@@ -420,7 +424,7 @@ export class Parser {
         )
       },
       circle: args => {
-        const center = parsePoint(args[0], { point: 0, frame: 0, curve: 0 })
+        const center = parsePoint(args[0])
         const [w, h] = evalPoint(args[1])
           .scale(this.transform.scale)
           .rotate2D(this.transform.rotation * Math.PI * 2)
@@ -432,12 +436,7 @@ export class Parser {
           [w, -h],
           [w, 0]
         ]).add(center)
-        this.currentCurve.push(
-          ...points.map((x, i) => {
-            this.progress.point = i / (points.length - 1)
-            return new AsemicPt(this, x)
-          })
-        )
+        this.currentCurve.push(...points.map(x => new AsemicPt(this, x)))
       }
     }
 
@@ -475,21 +474,19 @@ export class Parser {
               .rotate2D(this.transform.rotation * Math.PI * 2)
           )
         } else {
-          const keyCall = transform.match(/(\w+)\:([\w>,~]+)/)
+          const keyCall = transform.match(/(\w+)\:(\w+)/)
           if (keyCall) {
             const key = keyCall[1]
             const value = keyCall[2]
             switch (key) {
-              case 'thickness':
-                this.transform.thickness = () => {
-                  return evalExpr(value)
-                }
-                break
               default:
                 if (value.includes(',')) {
                   const list = value.split(',')
                   if (list.length > 2) {
-                    this.transform[key] = new Pt(value.split(',').map(evalExpr))
+                    this.transform[key] = new AsemicPt(
+                      this,
+                      value.split(',').map(evalExpr)
+                    )
                   } else {
                     this.transform[key] = evalPoint(value)
                   }
@@ -566,14 +563,10 @@ export class Parser {
         const pointsStr = token.substring(1, token.length - 1)
         const pointsTokens = pointsStr.split(' ')
 
-        pointsTokens.forEach((pointToken, i) => {
+        pointsTokens.forEach(pointToken => {
           if (!pointToken.trim()) return
 
-          const point = parsePoint(pointToken, {
-            point: i / (pointsTokens.length - 1),
-            frame: 0,
-            curve: 0
-          })
+          const point = parsePoint(pointToken)
           this.currentCurve.push(point)
         })
 
