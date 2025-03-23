@@ -80,14 +80,100 @@ export class Parser {
       .join('\n')
   }
 
-  parse(source: string) {
+  format({ w }: { w: number }) {
+    this.curves.forEach((curve, i) => {
+      if (curve.length === 2) {
+        const normal = curve
+          .at(1)
+          .$subtract(curve.at(0))
+          .rotate2D(0.25 * Math.PI * 2)
+          .unit()
+          .scale(curve.at(1).thickness / 2 / w)
+        const p0 = curve.at(0)
+        p0.add(normal)
+        const p1 = curve.at(1)
+        p1.add(normal)
+        curve.push(p1.$subtract(normal.clone().scale(2)))
+        curve.push(p0.$subtract(normal.clone().scale(2)))
+      } else {
+        const newCurve = new AsemicGroup()
+
+        const addCurve = (curve: AsemicGroup, i: number) => {
+          const p2 =
+            i === curve.length - 3
+              ? curve.at(i + 2).clone()
+              : curve
+                  .at(i + 1)
+                  .$add(curve.at(i + 2))
+                  .divide(2)
+          const n2 = curve
+            .at(i + 2)
+            .$subtract(curve.at(i + 1))
+            .rotate2D(0.25 * Math.PI * 2)
+            .unit()
+            .scale(
+              (curve.at(i + 1).thickness + curve.at(i + 2).thickness) /
+                2 /
+                2 /
+                w
+            )
+          p2.add(n2)
+          const p1 = curve.at(i + 1).clone()
+          const n1 = curve
+            .at(i + 2)
+            .$subtract(curve.at(i))
+            .rotate2D(0.25 * Math.PI * 2)
+            .unit()
+            .scale(curve.at(i + 1).thickness / 2 / w)
+          p1.add(n1)
+          newCurve.push(p1, p2)
+        }
+
+        const p0 = curve.at(0).clone()
+        const n0 = curve
+          .at(1)
+          .$subtract(curve.at(0))
+          .rotate2D(0.25 * Math.PI * 2)
+          .unit()
+          .scale(curve.at(0).thickness / 2 / w)
+        p0.add(n0)
+        for (let i = 0; i <= curve.length - 3; i++) {
+          addCurve(curve, i)
+        }
+        newCurve.push(p0)
+        const reversedCurve = new AsemicGroup(...curve.reverse())
+        const pEnd = reversedCurve.at(0).clone()
+        const nEnd = reversedCurve
+          .at(1)
+          .$subtract(reversedCurve.at(0))
+          .rotate2D(0.25 * Math.PI * 2)
+          .unit()
+          .scale(reversedCurve.at(0).thickness / 2 / w)
+        pEnd.add(nEnd)
+        newCurve.push(pEnd)
+        for (let i = 0; i <= curve.length - 3; i++) {
+          addCurve(reversedCurve, i)
+        }
+
+        this.curves[i] = newCurve
+      }
+    })
+    return this.curves
+  }
+
+  parse(source: string, settings: { w: number }) {
+    this.reset()
     const time = performance.now() - this.startTime
+
     // Helper to evaluate math expressions like "1/4"
     const evalExpr = (expr: string) => {
       if (!expr) return undefined
-      if (expr.includes('t')) {
+      if (expr.includes('T')) {
         // vary according to t
-        expr = expr.replace('t', `${Math.floor(time)}`)
+        expr = expr.replace(/T/g, `${Math.floor(time) / 1000}`)
+      }
+      while (expr.includes('R')) {
+        expr = expr.replace('R', `${Math.random().toFixed(3)}`)
       }
       if (expr.includes('~')) {
         // 1.1~2.4
@@ -99,6 +185,10 @@ export class Parser {
             ? this.transform.progress()
             : this.transform.progress
         )
+      }
+      if (expr.includes('%')) {
+        const [num, denom] = expr.split('%').map(evalExpr)
+        return num % denom
       }
       if (expr.includes('+')) {
         const [num, denom] = expr.split('+').map(evalExpr)
@@ -272,7 +362,8 @@ export class Parser {
             .split('')
             .map(x => this.font[x])
             .filter(Boolean)
-            .join(' {+.2,0} ')
+            .join(' {+.2,0} '),
+          settings
         )
       },
       '3': args => {
@@ -338,7 +429,6 @@ export class Parser {
       const transforms = transformStr.split(' ')
 
       transforms.forEach(transform => {
-        console.log('transform:', transform)
         if (transform === '!') {
           // Reset all transformations
           this.transform.scale.set([1, 1])
@@ -487,6 +577,7 @@ export class Parser {
     //   this.curves.push(this.currentCurve)
     // }
 
+    this.format(settings)
     return this.curves
   }
 

@@ -22,7 +22,7 @@ export default class Renderer {
         // ctx.beginPath()
         const normal = curve
           .at(1)
-          .$subtract(curve.at(0))
+          .$subtract(curve[0])
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
           .scale(curve.at(1).thickness / 2 / w)

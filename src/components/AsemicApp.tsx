@@ -1,45 +1,52 @@
 import { useEffect, useRef } from 'react'
 // @ts-ignore
+import { texture } from 'three/tsl'
+import { CanvasTexture, PostProcessing, WebGPURenderer } from 'three/webgpu'
+// @ts-ignore
 import AsemicWorker from './asemic.worker'
+import Renderer from './renderer'
 
 export default function AsemicApp({ source }: { source: string }) {
   const canvas = useRef<HTMLCanvasElement>(null!)
 
   useEffect(() => {
     const worker = AsemicWorker() as Worker
-    // const thisTexture = new Texture()
-    const ctx = canvas.current.getContext('bitmaprenderer')!
-    worker.onmessage = evt => {
-      const imageBitmap = evt.data.bitmap
-      if (imageBitmap instanceof ImageBitmap) {
-        ctx.transferFromImageBitmap(imageBitmap)
-        imageBitmap.close()
-        // thisTexture.image = imageBitmap
-        // thisTexture.needsUpdate = true
-        // postProcessing.render()
-      }
-      if (evt.data.log) {
-        console.log(
-          ...(evt.data.log instanceof Array ? evt.data.log : [evt.data.log])
-        )
-      }
-    }
+    const offscreenCanvas = new OffscreenCanvas(1080, 1080)
+    const thisTexture = new CanvasTexture(offscreenCanvas)
+    thisTexture.flipY = false
 
-    worker.postMessage({
-      curves: source
+    const renderer = new WebGPURenderer({
+      canvas: canvas.current
     })
+    const thisPass = texture(thisTexture)
+    const postProcessing = new PostProcessing(renderer, thisPass)
 
-    // const renderer = new WebGPURenderer({
-    //   canvas: canvas.current
-    // })
-    // const thisPass = texture(thisTexture)
-    // const postProcessing = new PostProcessing(renderer, thisPass)
-    // renderer.init().then(() => {
-    //   worker.postMessage({
-    //     curves: source
-    //   })
-    // })
-  })
+    const ctx = offscreenCanvas.getContext('2d')!
+    const offscreenRenderer = new Renderer(ctx)
+
+    renderer.init().then(() => {
+      worker.onmessage = evt => {
+        if (evt.data.curves) {
+          offscreenRenderer.render(evt.data.curves)
+          thisTexture.needsUpdate = true
+          postProcessing.render()
+        }
+      }
+      worker.postMessage({
+        source,
+        settings: { w: 1080 }
+      })
+      // renderer.setAnimationLoop(() => {
+      //   worker.postMessage({
+      //     source,
+      //     settings: { w: 1080 }
+      //   })
+      // })
+    })
+    return () => {
+      renderer.dispose()
+    }
+  }, [])
 
   return (
     <div

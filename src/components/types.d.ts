@@ -1,8 +1,12 @@
 declare global {
+  type ParserSettings = {
+    w: number
+  }
+
   interface Data {
-    grid?: { x: number; y: number }
-    curves?: string
     font?: Record<string, string>
+    source?: string
+    settings?: ParserSettings
   }
 }
 
