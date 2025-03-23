@@ -27,23 +27,21 @@ export default function AsemicApp({ source }: { source: string }) {
     renderer.init().then(() => {
       worker.onmessage = evt => {
         if (evt.data.curves) {
-          console.log(evt.data.curves)
-
           offscreenRenderer.render(evt.data.curves)
           thisTexture.needsUpdate = true
           postProcessing.render()
         }
       }
-      worker.postMessage({
-        source,
-        settings: { w: offscreenCanvas.width }
-      })
-      // renderer.setAnimationLoop(() => {
-      //   worker.postMessage({
-      //     source,
-      //     settings: { w: 1080 }
-      //   })
+      // worker.postMessage({
+      //   source,
+      //   settings: { w: offscreenCanvas.width }
       // })
+      renderer.setAnimationLoop(() => {
+        worker.postMessage({
+          source,
+          settings: { w: 1080 }
+        })
+      })
     })
     return () => {
       renderer.dispose()
