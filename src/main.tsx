@@ -5,7 +5,7 @@ import {
   Menu,
   Notice,
   Plugin,
-  setIcon,
+  setIcon
 } from 'obsidian'
 import SettingsTab from './plugin/SettingsTab'
 import { createRoot } from 'react-dom/client'
@@ -29,7 +29,6 @@ export default class AsemicPlugin extends Plugin {
 
       root.render(<AsemicApp source={source} />)
     })
-    // this.registerView(TIME_RULER_VIEW, (leaf) => new TimeRulerView(leaf, this))
   }
 
   async loadSettings() {

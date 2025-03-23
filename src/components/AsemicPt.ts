@@ -100,14 +100,19 @@ export class AsemicGroup extends Group {
   }
 }
 
+export type Progress = {
+  point: number
+  curve: number
+  frame: number
+}
+
 export class AsemicPt extends Pt {
-  a: number
-  color: Color
   thickness: number
   parent: Parser
+  progress: Progress
 
   clone(): AsemicPt {
-    return new AsemicPt(this.parent, this.x, this.y)
+    return new AsemicPt(this.parent, this.progress, this.x, this.y)
   }
   $to(...args: any[]): AsemicPt {
     return this.clone().to(...args)
@@ -171,19 +176,7 @@ export class AsemicPt extends Pt {
   constructor(parent: Parser, ...args: ConstructorParameters<typeof Pt>) {
     super(...args)
 
-    this.color = Color.HSLtoRGB(
-      typeof parent.transform.hsl === 'function'
-        ? parent.transform.hsl()
-        : parent.transform.hsl
-    )
-    this.thickness =
-      typeof parent.transform.thickness === 'function'
-        ? parent.transform.thickness()
-        : parent.transform.thickness
-    this.a =
-      typeof parent.transform.a === 'function'
-        ? parent.transform.a()
-        : parent.transform.a
+    this.thickness = parent.transform.thickness()
     this.parent = parent
   }
 }
