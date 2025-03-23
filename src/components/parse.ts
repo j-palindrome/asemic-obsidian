@@ -355,19 +355,17 @@ export class Parser {
           ...(this.curves.slice(slice).flat() as AsemicPt[])
         ).boundingBox()
         const sub = bounds[0].$subtract(point0)
-        this.curves
-          .slice(slice)
-          .forEach(curve =>
-            curve
-              .subtract(sub)
-              .scale(
-                Math.min(
-                  (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
-                  (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
-                ),
-                point0
-              )
-          )
+        this.curves.slice(slice).forEach(curve => {
+          curve
+            .subtract(sub)
+            .scale(
+              Math.min(
+                (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
+                (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
+              ),
+              point0
+            )
+        })
       },
       text: args => {
         const text = args.join(' ')
