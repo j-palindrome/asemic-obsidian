@@ -4,8 +4,8 @@ let parser: Parser = new Parser()
 
 self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.source) {
-    const curves = parser.parse(ev.data.source, ev.data.settings!)
-    self.postMessage({ curves })
+    parser.parse(ev.data.source)
+    self.postMessage({ curves: parser.format(ev.data.settings!) })
   }
   if (ev.data.font) {
     parser.font = ev.data.font
