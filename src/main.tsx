@@ -1,17 +1,17 @@
 import {
   App,
   MarkdownFileInfo,
+  MarkdownRenderChild,
   MarkdownView,
   Menu,
   Notice,
   Plugin,
-  setIcon,
+  setIcon
 } from 'obsidian'
 import SettingsTab from './plugin/SettingsTab'
 import { createRoot } from 'react-dom/client'
 import AsemicApp from './components/AsemicApp'
 
-// comment
 export default class AsemicPlugin extends Plugin {
   settings: {} = {}
 
@@ -25,11 +25,8 @@ export default class AsemicPlugin extends Plugin {
     this.addSettingTab(new SettingsTab(this))
 
     this.registerMarkdownCodeBlockProcessor('asemic', (source, el, ctx) => {
-      const root = createRoot(el)
-
-      root.render(<AsemicApp source={source} />)
+      ctx.addChild(new AsemicFrame(el, source, this))
     })
-    // this.registerView(TIME_RULER_VIEW, (leaf) => new TimeRulerView(leaf, this))
   }
 
   async loadSettings() {
@@ -38,5 +35,23 @@ export default class AsemicPlugin extends Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings)
+  }
+}
+
+export class AsemicFrame extends MarkdownRenderChild {
+  source: string
+  plugin: AsemicPlugin
+
+  onload() {
+    const root = createRoot(this.containerEl)
+    root.render(
+      <AsemicApp source={this.source} plugin={this.plugin} parent={this} />
+    )
+  }
+
+  constructor(el: HTMLElement, source: string, plugin: AsemicPlugin) {
+    super(el)
+    this.source = source
+    this.plugin = plugin
   }
 }

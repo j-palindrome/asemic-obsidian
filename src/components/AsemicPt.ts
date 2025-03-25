@@ -49,7 +49,7 @@ export class AsemicGroup extends Group {
     return super.lines() as AsemicGroup[]
   }
   interpolate(t: number): AsemicPt {
-    return super.interpolate(t) as AsemicPt
+    return new AsemicPt(this.at(0).parent, super.interpolate(t))
   }
   $matrixAdd(g: GroupLike | number[][] | number): AsemicGroup {
     return super.$matrixAdd(g) as AsemicGroup
@@ -101,8 +101,6 @@ export class AsemicGroup extends Group {
 }
 
 export class AsemicPt extends Pt {
-  a: number
-  color: Color
   thickness: number
   parent: Parser
 
@@ -170,20 +168,10 @@ export class AsemicPt extends Pt {
 
   constructor(parent: Parser, ...args: ConstructorParameters<typeof Pt>) {
     super(...args)
-
-    this.color = Color.HSLtoRGB(
-      typeof parent.transform.hsl === 'function'
-        ? parent.transform.hsl()
-        : parent.transform.hsl
-    )
     this.thickness =
       typeof parent.transform.thickness === 'function'
         ? parent.transform.thickness()
         : parent.transform.thickness
-    this.a =
-      typeof parent.transform.a === 'function'
-        ? parent.transform.a()
-        : parent.transform.a
     this.parent = parent
   }
 }

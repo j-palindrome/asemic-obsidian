@@ -4,6 +4,7 @@ let parser: Parser = new Parser()
 
 self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.source) {
+    parser.reset()
     parser.parse(ev.data.source)
     const formattedCurves = parser.format(ev.data.settings!)
     self.postMessage({ curves: formattedCurves })
