@@ -25,6 +25,7 @@ import { defaultFont } from './defaultFont'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
 import { thickness } from 'three/tsl'
+import { isEqual, last } from 'lodash'
 
 export type Transform = {
   scale: Pt
@@ -59,6 +60,7 @@ export class Parser {
       translation: new Pt(0, 0),
       thickness: 1
     }
+    this.currentCurve = new AsemicGroup()
   }
 
   log(slice: number = 0) {
@@ -179,70 +181,69 @@ export class Parser {
     return newCurves
   }
 
-  protected evalExpr(expr: string) {
-    if (!expr) return undefined
-    while (expr.includes('(')) {
-      let bracket = 1
-      const start = expr.indexOf('(')
-      let end = start + 1
-      for (; end < expr.length; end++) {
-        if (expr[end] === '(') bracket++
-        else if (expr[end] === ')') {
-          bracket--
-          if (bracket === 0) break
+  parse(source: string) {
+    const evalExpr = (expr: string) => {
+      if (!expr) return undefined
+      while (expr.includes('(')) {
+        let bracket = 1
+        const start = expr.indexOf('(')
+        let end = start + 1
+        for (; end < expr.length; end++) {
+          if (expr[end] === '(') bracket++
+          else if (expr[end] === ')') {
+            bracket--
+            if (bracket === 0) break
+          }
         }
+
+        expr =
+          expr.substring(0, start) +
+          evalExpr(expr.substring(start + 1, end)) +
+          expr.substring(end + 1)
+      }
+      if (expr.includes('T')) {
+        // vary according to t
+        expr = expr.replace(/T/g, this.progress.time.toString())
+      }
+      while (expr.includes('R')) {
+        expr = expr.replace('R', `${Math.random().toFixed(3)}`)
+      }
+      if (expr.includes('P')) {
+        expr = expr.replace(/P/g, this.progress.point.toString())
+      }
+      if (expr.includes('C')) {
+        expr = expr.replace(/C/g, this.progress.curve.toString())
+      }
+      if (expr.includes('>')) {
+        // 1.1<R>2.4
+        const [firstPoint, fade, ...nextPoints] = expr
+          .split(/[<>]/g)
+          .map(x => evalExpr(x))
+        const points = [firstPoint, ...nextPoints]
+        const index = (points.length - 1) * fade * 0.999
+
+        return lerp(
+          points[Math.floor(index)],
+          points[Math.floor(index) + 1],
+          index % 1
+        )
       }
 
-      expr =
-        expr.substring(0, start) +
-        this.evalExpr(expr.substring(start + 1, end)) +
-        expr.substring(end + 1)
-    }
-    if (expr.includes('T')) {
-      // vary according to t
-      expr = expr.replace(/T/g, this.progress.time.toString())
-    }
-    while (expr.includes('R')) {
-      expr = expr.replace('R', `${Math.random().toFixed(3)}`)
-    }
-    if (expr.includes('P')) {
-      expr = expr.replace(/P/g, this.progress.point.toString())
-    }
-    if (expr.includes('C')) {
-      expr = expr.replace(/C/g, this.progress.curve.toString())
-    }
-    if (expr.includes('>')) {
-      // 1.1<R>2.4
-      const [firstPoint, fade, ...nextPoints] = expr
-        .split(/[<>]/g)
-        .map(x => this.evalExpr(x))
-      const points = [firstPoint, ...nextPoints]
-      const index = (points.length - 1) * fade * 0.999
+      if (expr.includes('*')) {
+        const [num, denom] = expr.split('*').map(x => evalExpr(x))
+        return num / denom
+      }
+      if (expr.includes('/')) {
+        const [num, denom] = expr.split('/').map(x => evalExpr(x))
+        return num / denom
+      }
+      if (expr.includes('%')) {
+        const [num, denom] = expr.split('%').map(x => evalExpr(x))
+        return num % denom
+      }
 
-      return lerp(
-        points[Math.floor(index)],
-        points[Math.floor(index) + 1],
-        index % 1
-      )
+      return parseFloat(expr)
     }
-
-    if (expr.includes('*')) {
-      const [num, denom] = expr.split('*').map(x => this.evalExpr(x))
-      return num / denom
-    }
-    if (expr.includes('/')) {
-      const [num, denom] = expr.split('/').map(x => this.evalExpr(x))
-      return num / denom
-    }
-    if (expr.includes('%')) {
-      const [num, denom] = expr.split('%').map(x => this.evalExpr(x))
-      return num % denom
-    }
-
-    return parseFloat(expr)
-  }
-
-  parse(source: string) {
     const evalPoint = (
       point: string,
       defaultValue: boolean | number = true
@@ -252,11 +253,11 @@ export class Parser {
         if (defaultValue === false)
           throw new Error(`Incomplete point: ${point}`)
         return new Pt(
-          this.evalExpr(parts[0]),
-          defaultValue === true ? this.evalExpr(parts[0]) : defaultValue
+          evalExpr(parts[0]),
+          defaultValue === true ? evalExpr(parts[0]) : defaultValue
         )
       }
-      return new Pt(this.evalExpr(parts[0]), this.evalExpr(parts[1]))
+      return new Pt(evalExpr(parts[0]), evalExpr(parts[1]))
     }
 
     // Parse point from string notation
@@ -283,7 +284,7 @@ export class Parser {
           throw new Error('Intersection requires a previous curve')
         }
 
-        let p = this.evalExpr(notation.substring(1))
+        let p = evalExpr(notation.substring(1))
         const idx = Math.floor(p * (prevCurve.length - 1))
         const frac = p * (prevCurve.length - 1) - idx
 
@@ -363,8 +364,8 @@ export class Parser {
         w = 0
       if (args.length >= 3) {
         const hwParts = args[2].split(',')
-        h = this.evalExpr(hwParts[0])
-        w = hwParts.length > 1 ? this.evalExpr(hwParts[1]) : 0
+        h = evalExpr(hwParts[0])
+        w = hwParts.length > 1 ? evalExpr(hwParts[1]) : 0
       }
 
       return [startPoint, endPoint, h, w] as [
@@ -380,7 +381,7 @@ export class Parser {
     const functions: Record<string, (args: string) => void> = {
       log: args => {
         const slice = Number(args[0] || '0')
-        postMessage({ log: this.log(slice) })
+        console.log(this.log(slice))
       },
       within: argsStr => {
         const args = splitArgs(argsStr)
@@ -390,6 +391,15 @@ export class Parser {
         const bounds = new AsemicGroup(
           ...(this.curves.slice(slice).flat() as AsemicPt[])
         ).boundingBox()
+        console.log(
+          'bounds',
+          bounds,
+          'group',
+          last(this.curves)!.clone(),
+          'current',
+          this.currentCurve.clone()
+        )
+
         const sub = bounds[0].$subtract(point0)
         this.curves
           .slice(slice)
@@ -544,7 +554,7 @@ export class Parser {
           this.transform.scale.multiply(evalPoint(transform.substring(1)))
         } else if (transform.startsWith('@')) {
           // Rotation
-          this.transform.rotation += this.evalExpr(transform.substring(1))
+          this.transform.rotation += evalExpr(transform.substring(1))
         } else if (transform.startsWith('+')) {
           // Translation
           this.transform.translation.add(
@@ -560,7 +570,7 @@ export class Parser {
             switch (key) {
               case 'thickness':
                 this.transform.thickness = () => {
-                  return this.evalExpr(value)
+                  return evalExpr(value)
                 }
                 break
               default:
@@ -569,13 +579,13 @@ export class Parser {
                   if (list.length > 2) {
                     this.transform[key] = new AsemicPt(
                       this,
-                      value.split(',').map(x => this.evalExpr(x))
+                      value.split(',').map(x => evalExpr(x))
                     )
                   } else {
                     this.transform[key] = evalPoint(value)
                   }
                 } else {
-                  this.transform[key] = this.evalExpr(value)
+                  this.transform[key] = evalExpr(value)
                 }
                 break
             }
@@ -705,10 +715,9 @@ export class Parser {
 
     if (this.currentCurve.length > 0) {
       this.curves.push(this.currentCurve)
+      this.currentCurve = new AsemicGroup()
     }
   }
 
-  constructor() {
-    this.evalExpr = this.evalExpr.bind(this)
-  }
+  constructor() {}
 }
