@@ -1,15 +1,10 @@
-import { Bound, Group } from 'pts'
-import { AsemicGroup, AsemicPt } from './AsemicPt'
-
 export default class Renderer {
   ctx: OffscreenCanvasRenderingContext2D
   render(curves: [number, number][][]) {
     let { ctx } = this
-    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
     ctx.resetTransform()
-    ctx.scale(ctx.canvas.width, -ctx.canvas.width)
-    ctx.translate(0, -1)
-    ctx.lineWidth = 2 / ctx.canvas.width
+    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height)
+    ctx.scale(ctx.canvas.width, ctx.canvas.width)
     ctx.fillStyle = 'white'
     for (let curve of curves) {
       ctx.beginPath()

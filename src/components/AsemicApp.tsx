@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 // @ts-ignore
 import { texture } from 'three/tsl'
 import { CanvasTexture, PostProcessing, WebGPURenderer } from 'three/webgpu'
@@ -18,24 +18,36 @@ export default function AsemicApp({
   parent: AsemicFrame
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
+  const [settings, setSettings] = useState({
+    animating: true,
+    h: 1
+  })
+
+  const { offscreenCanvas, onResize } = useMemo(() => {
+    const offscreenCanvas = new OffscreenCanvas(0, 0)
+    const onResize = () => {
+      invariant(canvas.current)
+      const boundingRect = canvas.current.getBoundingClientRect()
+      offscreenCanvas.width = boundingRect.width * devicePixelRatio
+      offscreenCanvas.height = boundingRect.height * devicePixelRatio
+      canvas.current.width = boundingRect.width * devicePixelRatio
+      canvas.current.height = boundingRect.height * devicePixelRatio
+    }
+    return { offscreenCanvas, onResize }
+  }, [])
+  useEffect(() => {
+    onResize()
+  }, [settings.h])
 
   useEffect(() => {
     const worker = AsemicWorker() as Worker
-    let settings = {
-      animating: true
-    }
+
     invariant(canvas.current)
-    const offscreenCanvas = new OffscreenCanvas(
-      canvas.current.height * devicePixelRatio,
-      canvas.current.width * devicePixelRatio
-    )
+    onResize()
+
     // const thisTexture = new CanvasTexture(offscreenCanvas)
     // thisTexture.flipY = false
-    const onResize = () => {
-      invariant(canvas.current)
-      offscreenCanvas.height = canvas.current.height * devicePixelRatio
-      offscreenCanvas.width = canvas.current.width * devicePixelRatio
-    }
+
     window.addEventListener('resize', onResize)
 
     // const renderer = new WebGPURenderer({
@@ -61,7 +73,6 @@ export default function AsemicApp({
     //   // })
     //   renderer.setAnimationLoop(() => {
     //     if (!canvas.current) {
-    //       console.log('exited')
     //       renderer.dispose()
     //       return
     //     }
@@ -76,8 +87,7 @@ export default function AsemicApp({
 
     worker.onmessage = evt => {
       if (evt.data.settings) {
-        Object.assign(settings, evt.data.settings)
-        console.log('settings', settings)
+        setSettings(settings => ({ ...settings, ...evt.data.settings }))
       }
       if (evt.data.curves) {
         offscreenRenderer.render(evt.data.curves)
@@ -89,14 +99,17 @@ export default function AsemicApp({
         animationFrame = requestAnimationFrame(() => {
           worker.postMessage({
             source,
-            settings: { w: offscreenCanvas.width }
+            settings: {
+              height: offscreenCanvas.height,
+              width: offscreenCanvas.width
+            }
           })
         })
       }
     }
     worker.postMessage({
       source,
-      settings: { w: offscreenCanvas.width }
+      settings: { height: offscreenCanvas.height, width: offscreenCanvas.width }
     })
     parent.onunload = () => {
       cancelAnimationFrame(animationFrame)
@@ -110,20 +123,12 @@ export default function AsemicApp({
   }, [])
 
   return (
-    <div
-      className='asemic'
-      style={{
-        maxHeight: '80vh',
-        aspectRatio: '1 / 1',
-        width: '100%',
-        display: 'flex',
-        alignItems: 'center'
-      }}>
+    <div className='asemic'>
       <canvas
         ref={canvas}
-        style={{ height: '100%', width: '100%' }}
-        height={1920}
-        width={1920}></canvas>
+        style={{ width: '100%', aspectRatio: `1 / ${settings.h}` }}
+        height={0}
+        width={0}></canvas>
     </div>
   )
 }

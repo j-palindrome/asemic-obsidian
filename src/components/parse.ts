@@ -20,12 +20,10 @@
 // Larger-scale functions
 // text(string): render the given text
 
-import { Bound, Color, Group, Mat, Pt } from 'pts'
-import { defaultFont } from './defaultFont'
+import { Group, Pt } from 'pts'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
-import { thickness } from 'three/tsl'
-import { isEqual, last } from 'lodash'
+import { defaultFont } from './defaultFont'
 
 export type Transform = {
   scale: Pt
@@ -45,12 +43,14 @@ export class Parser {
     thickness: 1
   }
   transforms: Transform[] = []
-  progress = { point: 0, time: 0, curve: 0 }
+  progress = { point: 0, time: 0, curve: 0, height: 0, width: 0 }
   font = defaultFont
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
 
-  reset() {
+  reset({ height, width }: { height: number; width: number }) {
     this.curves = []
+    this.progress.height = height
+    this.progress.width = width
     this.progress.point = 0
     this.progress.curve = 0
     this.progress.time = Math.floor(performance.now() - this.startTime) / 1000
@@ -81,7 +81,8 @@ export class Parser {
       .join('\n')
   }
 
-  format({ w }: { w: number }) {
+  format() {
+    const w = this.progress.width
     let newCurves: [number, number][][] = []
     for (let curve of this.curves) {
       // fake it with a gradient
@@ -205,6 +206,11 @@ export class Parser {
         // vary according to t
         expr = expr.replace(/T/g, this.progress.time.toString())
       }
+      if (expr.includes('H')) {
+        const height = this.progress.height / this.progress.width
+        expr = expr.replace(/H/g, `${height}`)
+      }
+
       while (expr.includes('R')) {
         expr = expr.replace('R', `${Math.random().toFixed(3)}`)
       }
@@ -231,7 +237,7 @@ export class Parser {
 
       if (expr.includes('*')) {
         const [num, denom] = expr.split('*').map(x => evalExpr(x))
-        return num / denom
+        return num * denom
       }
       if (expr.includes('/')) {
         const [num, denom] = expr.split('/').map(x => evalExpr(x))
@@ -244,6 +250,7 @@ export class Parser {
 
       return parseFloat(expr)
     }
+
     const evalPoint = (
       point: string,
       defaultValue: boolean | number = true
@@ -343,7 +350,7 @@ export class Parser {
         start,
         ...multiplyPoints.map((x, i) => {
           x.scale([distance, this.transform.scale.y], [0, 0])
-            .add(addPoints[i].scale([1, this.transform.scale.x], [0, 0]))
+            .add(addPoints[i].scale([this.transform.scale.x, 1], [0, 0]))
             .rotate2D(angle, [0, 0])
             .add(start)
           this.progress.point = (i + 1) / (multiplyPoints.length + 2 - 1)
@@ -391,14 +398,6 @@ export class Parser {
         const bounds = new AsemicGroup(
           ...(this.curves.slice(slice).flat() as AsemicPt[])
         ).boundingBox()
-        console.log(
-          'bounds',
-          bounds,
-          'group',
-          last(this.curves)!.clone(),
-          'current',
-          this.currentCurve.clone()
-        )
 
         const sub = bounds[0].$subtract(point0)
         this.curves
@@ -414,21 +413,6 @@ export class Parser {
                 point0
               )
           )
-      },
-      text: text => {
-        const formatSpace = (insert?: string) => {
-          if (insert) return ` ${insert} `
-          return ' '
-        }
-        this.parse(
-          formatSpace(this.font.settings.start) +
-            text
-              .split('')
-              .map(x => this.font.characters[x])
-              .filter(Boolean)
-              .join(formatSpace(this.font.settings.each)) +
-            formatSpace(this.font.settings.end)
-        )
       },
       '3': argsStr => {
         const args = splitArgs(argsStr)
@@ -498,8 +482,6 @@ export class Parser {
         const args = splitArgs(argsStr)
         const center = parsePoint(args[0])
         const [w, h] = evalPoint(args[1])
-          .scale(this.transform.scale)
-          .rotate2D(this.transform.rotation * Math.PI * 2)
         const points = Group.fromArray([
           [w, 0],
           [w, h],
@@ -507,7 +489,10 @@ export class Parser {
           [-w, -h],
           [w, -h],
           [w, 0]
-        ]).add(center)
+        ])
+          .scale(this.transform.scale, [0, 0])
+          // .rotate2D(this.transform.rotation * Math.PI * 2, [0, 0])
+          .add(center)
         this.currentCurve.push(
           ...points.map((x, i) => {
             this.progress.point = i / (points.length - 1)
@@ -601,7 +586,7 @@ export class Parser {
           this.settings[token.substring(1)] = false
         } else if (token.includes(':')) {
           const [key, value] = token.split(':')
-          this.settings[key] = parseFloat(value)
+          this.settings[key] = evalExpr(value)
         } else {
           this.settings[token] = true
         }
@@ -612,6 +597,8 @@ export class Parser {
         for (let token of preSettings.split(/\s/g)) {
           parseSetting(token.trim())
         }
+        console.log('settings', this.settings)
+
         postMessage({ settings: this.settings })
       }
       source = afterSource
@@ -623,6 +610,7 @@ export class Parser {
     let inBrackets = 0
     let inParentheses = 0
     let inBraces = 0
+    let quote = false
 
     const parsedString = source
       .split('\n')
@@ -631,14 +619,19 @@ export class Parser {
     for (let i = 0; i < parsedString.length; i++) {
       const char = parsedString[i]
 
-      if (char === '[') inBrackets++
-      else if (char === ']') inBrackets--
-      else if (char === '(') inParentheses++
-      else if (char === ')') inParentheses--
-      else if (char === '{') inBraces++
-      else if (char === '}') inBraces--
+      if (char === '"' && parsedString[i - 1] !== '\\') quote = !quote
+
+      if (!quote) {
+        if (char === '[') inBrackets++
+        else if (char === ']') inBrackets--
+        else if (char === '(') inParentheses++
+        else if (char === ')') inParentheses--
+        else if (char === '{') inBraces++
+        else if (char === '}') inBraces--
+      }
 
       if (
+        !quote &&
         (char === ' ' || char === '\n') &&
         inBrackets === 0 &&
         inParentheses === 0 &&
@@ -694,6 +687,22 @@ export class Parser {
         })
 
         continue
+      }
+
+      if (token.startsWith('"')) {
+        const formatSpace = (insert?: string) => {
+          if (insert) return ` ${insert} `
+          return ' '
+        }
+        this.parse(
+          formatSpace(this.font.settings.start) +
+            token
+              .split('')
+              .map(x => this.font.characters[x])
+              .filter(Boolean)
+              .join(formatSpace(this.font.settings.each)) +
+            formatSpace(this.font.settings.end)
+        )
       }
 
       // Parse function call

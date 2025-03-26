@@ -1,10 +1,13 @@
+import { AsemicFont } from './defaultFont'
+
 declare global {
   type ParserSettings = {
-    w: number
+    height: number
+    width: number
   }
 
   interface Data {
-    font?: Record<string, string>
+    font?: AsemicFont
     source?: string
     settings?: ParserSettings
   }
