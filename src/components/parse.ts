@@ -23,7 +23,7 @@
 import { Group, Pt } from 'pts'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
-import { defaultFont } from './defaultFont'
+import { AsemicFont, defaultFont } from './defaultFont'
 
 export type Transform = {
   scale: Pt
@@ -48,6 +48,7 @@ export class Parser {
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
 
   reset({ height, width }: { height: number; width: number }) {
+    this.font.reset()
     this.curves = []
     this.progress.height = height
     this.progress.width = width
@@ -183,8 +184,36 @@ export class Parser {
   }
 
   parse(source: string) {
-    const evalExpr = (expr: string) => {
+    const splitString = (string: string, at: string) => {
+      let index = string.indexOf(at)
+      return [string.slice(0, index), string.slice(index + at.length)]
+    }
+
+    const evalExpr = (expr: string, replace = true) => {
       if (!expr) return undefined
+      if (replace) {
+        if (expr.includes('T')) {
+          // vary according to t
+          expr = expr.replace(/T/g, this.progress.time.toString())
+        }
+        if (expr.includes('H')) {
+          const height = this.progress.height / this.progress.width
+          expr = expr.replace(/H/g, `${height}`)
+        }
+        while (expr.includes('R')) {
+          expr = expr.replace('R', `${Math.random().toFixed(3)}`)
+        }
+        if (expr.includes('P')) {
+          expr = expr.replace(/P/g, this.progress.point.toString())
+        }
+        if (expr.includes('C')) {
+          expr = expr.replace(/C/g, this.progress.curve.toString())
+        }
+        if (expr.includes('px')) {
+          expr = expr.replace(/px/g, `*${(1 / this.progress.width).toString()}`)
+        }
+      }
+
       while (expr.includes('(')) {
         let bracket = 1
         const start = expr.indexOf('(')
@@ -199,32 +228,15 @@ export class Parser {
 
         expr =
           expr.substring(0, start) +
-          evalExpr(expr.substring(start + 1, end)) +
+          evalExpr(expr.substring(start + 1, end), false) +
           expr.substring(end + 1)
       }
-      if (expr.includes('T')) {
-        // vary according to t
-        expr = expr.replace(/T/g, this.progress.time.toString())
-      }
-      if (expr.includes('H')) {
-        const height = this.progress.height / this.progress.width
-        expr = expr.replace(/H/g, `${height}`)
-      }
 
-      while (expr.includes('R')) {
-        expr = expr.replace('R', `${Math.random().toFixed(3)}`)
-      }
-      if (expr.includes('P')) {
-        expr = expr.replace(/P/g, this.progress.point.toString())
-      }
-      if (expr.includes('C')) {
-        expr = expr.replace(/C/g, this.progress.curve.toString())
-      }
       if (expr.includes('>')) {
         // 1.1<R>2.4
         const [firstPoint, fade, ...nextPoints] = expr
           .split(/[<>]/g)
-          .map(x => evalExpr(x))
+          .map(x => evalExpr(x, false))
         const points = [firstPoint, ...nextPoints]
         const index = (points.length - 1) * fade * 0.999
 
@@ -235,16 +247,24 @@ export class Parser {
         )
       }
 
+      if (expr.includes('+')) {
+        const [num, denom] = splitString(expr, '+').map(x => evalExpr(x, false))
+        return num + denom
+      }
+      if (expr.includes('-') && !expr.startsWith('-')) {
+        const [num, denom] = splitString(expr, '-').map(x => evalExpr(x, false))
+        return num - denom
+      }
       if (expr.includes('*')) {
-        const [num, denom] = expr.split('*').map(x => evalExpr(x))
+        const [num, denom] = splitString(expr, '*').map(x => evalExpr(x, false))
         return num * denom
       }
       if (expr.includes('/')) {
-        const [num, denom] = expr.split('/').map(x => evalExpr(x))
+        const [num, denom] = splitString(expr, '/').map(x => evalExpr(x, false))
         return num / denom
       }
       if (expr.includes('%')) {
-        const [num, denom] = expr.split('%').map(x => evalExpr(x))
+        const [num, denom] = splitString(expr, '%').map(x => evalExpr(x, false))
         return num % denom
       }
 
@@ -591,13 +611,14 @@ export class Parser {
           this.settings[token] = true
         }
       }
-      const [preSettings, afterSource] = source.split('\n---')
+      const [preSettings, afterSource] = splitString(source, '\n---')
+
       if (!this.settings) {
         this.settings = {}
+
         for (let token of preSettings.split(/\s/g)) {
           parseSetting(token.trim())
         }
-        console.log('settings', this.settings)
 
         postMessage({ settings: this.settings })
       }
@@ -611,11 +632,11 @@ export class Parser {
     let inParentheses = 0
     let inBraces = 0
     let quote = false
+    let fontSettings = false
 
     const parsedString = source
-      .split('\n')
-      .filter(x => !/^\s*\/\//.test(x))
-      .join('\n')
+      .replace(/^\/\/.*?$/gm, '')
+      .replace(/\/\*.*?\*\//g, '')
     for (let i = 0; i < parsedString.length; i++) {
       const char = parsedString[i]
 
@@ -628,10 +649,20 @@ export class Parser {
         else if (char === ')') inParentheses--
         else if (char === '{') inBraces++
         else if (char === '}') inBraces--
+        else if (
+          char === '-' &&
+          parsedString[i + 1] === '-' &&
+          parsedString[i + 2] === '-'
+        ) {
+          console.log('font settings enabled')
+
+          fontSettings = !fontSettings
+        }
       }
 
       if (
         !quote &&
+        !fontSettings &&
         (char === ' ' || char === '\n') &&
         inBrackets === 0 &&
         inParentheses === 0 &&
@@ -689,19 +720,43 @@ export class Parser {
         continue
       }
 
+      if (token.startsWith('---')) {
+        token = token.substring(3, token.length - 3).trim()
+
+        if (token === '!') {
+          this.font.reset()
+        } else if (token.includes('\n')) {
+          for (let letter of token.split('\n')) {
+            if (!letter) continue
+            const [key, value] = splitString(letter.trim(), ':')
+            if (value === '!') this.font.resetCharacter(key)
+            else this.font.characters[key] = value
+          }
+        } else {
+          for (let letter of token.split(';')) {
+            if (!letter) continue
+            const [key, value] = splitString(letter.trim(), ':')
+            this.font.characters[key] = value
+          }
+        }
+        continue
+      }
+
       if (token.startsWith('"')) {
         const formatSpace = (insert?: string) => {
           if (insert) return ` ${insert} `
           return ' '
         }
+        console.log(formatSpace(this.font.characters['\\.']))
+
         this.parse(
-          formatSpace(this.font.settings.start) +
+          formatSpace(this.font.characters['\\^']) +
             token
               .split('')
               .map(x => this.font.characters[x])
               .filter(Boolean)
-              .join(formatSpace(this.font.settings.each)) +
-            formatSpace(this.font.settings.end)
+              .join(formatSpace(this.font.characters['\\.'])) +
+            formatSpace(this.font.characters['\\$'])
         )
       }
 

@@ -1,25 +1,32 @@
 export class AsemicFont {
-  characters: Record<string, string> = {}
-  settings: { each?: string; start?: string; end?: string }
-  constructor(characters: string, settings: AsemicFont['settings']) {
+  protected defaultCharacters: Record<string, string> = {}
+  characters: Record<string, string>
+  reset() {
+    this.characters = { ...this.defaultCharacters }
+  }
+  resetCharacter(char: string) {
+    this.characters[char] = this.defaultCharacters[char]
+  }
+  constructor(characters: string) {
     characters.split('\n').forEach(char => {
       let [name, markup] = char.split(': ')
       const escapedCharacters = {
-        '\\n': '\n'
+        '\\n': '\n',
+        '\\s': ' '
       }
       for (let char of Object.keys(escapedCharacters)) {
         if (name.includes(char)) {
           name = name.replace(char, escapedCharacters[char])
         }
       }
-      this.characters[name] = markup
+      this.defaultCharacters[name] = markup
     })
-    this.settings = settings
+    this.reset()
   }
 }
 
 export const defaultFont = new AsemicFont(
-  `a: 4(1,-1 1,0 1) {> +0,-.1 *1,1.4} 3(1,-1 +0,1 .05) {< +1,0}
+  `a: 4(1,-1 1,0 1) 3(1,-1 +0,1 .05) {+1,0}
 b: [0,-2 0,0] 4(0,-1 0,0 -1) {+1,0}
 c: 5(1,-.8 @1/4,.6 1,.2) {+1,0}
 d: [1,-2 1,0] 4(1,-1 1,0 1) {+1,0}
@@ -45,8 +52,8 @@ w: {*0.5,1} [0,-1 .5,0] [.5,0 1,-1] {+1,0} [0,-1 .5,0] [.5,0 1,-1] {+1,0 *2,1}
 x: [0,-1 +1,1] [0,0 +1,-1] {+1,0}
 y: [0,1 +1,-2] [<0.5 0,-1] {+1,0}
 z: [0,-1 +1,0] [1,-1 0,0] [0,0 +1,0] {+1,0}
- : {+1,0}
-\\n: {< +0,-3 >}
-\\: {< +0,-3 >}`,
-  { start: '{>}', end: '', each: '{+.1,0}' }
+\\s: {+1,0}
+\\n: {< +0,3 >}
+\\^: {>}
+\\.: {+.1,0}`
 )

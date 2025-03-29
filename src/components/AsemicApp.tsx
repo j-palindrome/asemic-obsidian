@@ -1,8 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 // @ts-ignore
-import { texture } from 'three/tsl'
-import { CanvasTexture, PostProcessing, WebGPURenderer } from 'three/webgpu'
-// @ts-ignore
 import AsemicWorker from './asemic.worker'
 import Renderer from './renderer'
 import AsemicPlugin, { AsemicFrame } from 'src/main'
@@ -39,9 +36,43 @@ export default function AsemicApp({
     onResize()
   }, [settings.h])
 
-  useEffect(() => {
-    const worker = AsemicWorker() as Worker
+  const worker = useMemo(() => new AsemicWorker() as Worker, [])
 
+  let animationFrame = useRef(0)
+
+  useEffect(() => {
+    invariant(canvas.current)
+    const onscreen = canvas.current.getContext('bitmaprenderer')!
+
+    if (!canvas.current) return
+    const ctx = offscreenCanvas.getContext('2d')!
+    const renderer = new Renderer(ctx)
+
+    worker.onmessage = evt => {
+      if (evt.data.settings) {
+        setSettings(settings => ({ ...settings, ...evt.data.settings }))
+      }
+      if (evt.data.curves) {
+        renderer.render(evt.data.curves)
+        onscreen.transferFromImageBitmap(
+          offscreenCanvas.transferToImageBitmap()
+        )
+
+        if (!settings.animating) return
+        animationFrame.current = requestAnimationFrame(() => {
+          worker.postMessage({
+            source,
+            settings: {
+              height: offscreenCanvas.height,
+              width: offscreenCanvas.width
+            }
+          })
+        })
+      }
+    }
+  }, [settings])
+
+  useEffect(() => {
     invariant(canvas.current)
     onResize()
 
@@ -55,9 +86,6 @@ export default function AsemicApp({
     // })
     // const thisPass = texture(thisTexture)
     // const postProcessing = new PostProcessing(renderer, thisPass)
-
-    const ctx = offscreenCanvas.getContext('2d')!
-    const offscreenRenderer = new Renderer(ctx)
 
     // renderer.init().then(() => {
     //   worker.onmessage = evt => {
@@ -82,38 +110,14 @@ export default function AsemicApp({
     //     })
     //   })
     // })
-    const onscreen = canvas.current.getContext('bitmaprenderer')!
-    let animationFrame = 0
 
-    worker.onmessage = evt => {
-      if (evt.data.settings) {
-        setSettings(settings => ({ ...settings, ...evt.data.settings }))
-      }
-      if (evt.data.curves) {
-        offscreenRenderer.render(evt.data.curves)
-        onscreen.transferFromImageBitmap(
-          offscreenCanvas.transferToImageBitmap()
-        )
-
-        if (!settings.animating) return
-        animationFrame = requestAnimationFrame(() => {
-          worker.postMessage({
-            source,
-            settings: {
-              height: offscreenCanvas.height,
-              width: offscreenCanvas.width
-            }
-          })
-        })
-      }
-    }
     worker.postMessage({
       source,
       settings: { height: offscreenCanvas.height, width: offscreenCanvas.width }
     })
     parent.onunload = () => {
-      cancelAnimationFrame(animationFrame)
-      settings.animating = false
+      cancelAnimationFrame(animationFrame.current)
+      setSettings(settings => ({ ...settings, animating: false }))
       // renderer.setAnimationLoop(() => {})
       // renderer.dispose()
       // thisTexture.dispose()
