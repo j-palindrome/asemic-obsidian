@@ -10,7 +10,7 @@ import {
 } from 'obsidian'
 import SettingsTab from './plugin/SettingsTab'
 import { createRoot } from 'react-dom/client'
-import AsemicApp from './components/AsemicApp'
+import AsemicApp from './components/AsemicApp_Obsidian'
 
 export default class AsemicPlugin extends Plugin {
   settings: {} = {}
