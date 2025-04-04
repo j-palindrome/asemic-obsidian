@@ -8,7 +8,7 @@ import {
   RefObject,
   useImperativeHandle
 } from 'react'
-import { CanvasTexture } from 'three'
+import { CanvasTexture, FloatType } from 'three'
 import { PostProcessing, WebGPURenderer } from 'three/src/Three.WebGPU.js'
 import { texture } from 'three/tsl'
 import invariant from 'tiny-invariant'
@@ -45,9 +45,15 @@ export default function AsemicApp({ source }: { source: string }) {
       offscreenCanvas.height = boundingRect.height * devicePixelRatio
       // canvas.current.width = boundingRect.width * devicePixelRatio
       // canvas.current.height = boundingRect.height * devicePixelRatio
-      onscreen.setSize(boundingRect.width, boundingRect.height)
+      // onscreen.setSize(boundingRect.width, boundingRect.height)
+      onscreen.setDrawingBufferSize(
+        boundingRect.width,
+        boundingRect.height,
+        devicePixelRatio
+      )
+      thisTexture.image.width = offscreenCanvas.width
+      thisTexture.image.height = offscreenCanvas.height
       thisTexture.needsUpdate = true
-      // TODO: resize thisTexture to fit the size of the canvas
 
       worker.current.postMessage({
         settings: {
@@ -62,7 +68,12 @@ export default function AsemicApp({ source }: { source: string }) {
 
     // const onscreen = canvas.current.getContext('bitmaprenderer')!
     const onscreen = new WebGPURenderer({
-      canvas: canvas.current
+      canvas: canvas.current,
+      antialias: true,
+      depth: false,
+      alpha: true,
+      powerPreference: 'high-performance',
+      colorBufferType: FloatType
     })
 
     const thisPass = texture(thisTexture)
@@ -81,6 +92,7 @@ export default function AsemicApp({ source }: { source: string }) {
         // onscreen.transferFromImageBitmap(
         //   offscreenCanvas.transferToImageBitmap()
         // )
+
         thisTexture.needsUpdate = true
         postProcessing.render()
 
@@ -122,6 +134,7 @@ export default function AsemicApp({ source }: { source: string }) {
       worker.current.terminate()
       thisTexture.dispose()
     }
+
     return () => {
       dispose()
     }
