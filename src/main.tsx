@@ -9,8 +9,8 @@ import {
   setIcon
 } from 'obsidian'
 import SettingsTab from './plugin/SettingsTab'
-import { createRoot } from 'react-dom/client'
-import AsemicApp from './components/AsemicApp_Obsidian'
+import { createRoot, Root } from 'react-dom/client'
+import PluginApp from './App'
 
 export default class AsemicPlugin extends Plugin {
   settings: {} = {}
@@ -41,12 +41,17 @@ export default class AsemicPlugin extends Plugin {
 export class AsemicFrame extends MarkdownRenderChild {
   source: string
   plugin: AsemicPlugin
+  root: Root
 
   onload() {
-    const root = createRoot(this.containerEl)
-    root.render(
-      <AsemicApp source={this.source} plugin={this.plugin} parent={this} />
+    this.root = createRoot(this.containerEl)
+    this.root.render(
+      <PluginApp source={this.source} plugin={this.plugin} parent={this} />
     )
+  }
+
+  onunload(): void {
+    this.root.unmount()
   }
 
   constructor(el: HTMLElement, source: string, plugin: AsemicPlugin) {

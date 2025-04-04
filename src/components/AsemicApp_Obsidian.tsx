@@ -5,7 +5,7 @@ import Renderer from './renderer'
 import AsemicPlugin, { AsemicFrame } from 'src/main'
 import invariant from 'tiny-invariant'
 
-export default function AsemicApp({
+export default function AsemicApp_Obsidian({
   source,
   plugin,
   parent

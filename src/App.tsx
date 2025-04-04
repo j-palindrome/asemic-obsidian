@@ -1,8 +1,9 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import AsemicApp from './components/AsemicApp'
 import AsemicPlugin, { AsemicFrame } from './main'
+import AsemicApp_Obsidian from './components/AsemicApp_Obsidian'
 
-export default function App({
+export default function PluginApp({
   source,
   plugin,
   parent
@@ -11,15 +12,5 @@ export default function App({
   plugin: AsemicPlugin
   parent: AsemicFrame
 }) {
-  parent.onunload = () => {
-    cancelAnimationFrame(animationFrame.current)
-    setSettings(settings => ({ ...settings, animating: false }))
-    // renderer.setAnimationLoop(() => {})
-    // renderer.dispose()
-    // thisTexture.dispose()
-    worker.terminate()
-    window.removeEventListener('resize', onResize)
-  }
-  const asemicRef = useRef<any>()
-  return <AsemicApp source={source} ref={asemicRef}></AsemicApp>
+  return <AsemicApp plugin={plugin} parent={parent} source={source} />
 }

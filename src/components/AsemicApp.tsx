@@ -17,13 +17,7 @@ import AsemicWorker from './asemic.worker'
 import { Parser } from './parse'
 import Renderer from './renderer'
 
-export default function AsemicApp({
-  source,
-  ref
-}: {
-  source: string
-  ref: RefObject<any>
-}) {
+export default function AsemicApp({ source }: { source: string }) {
   const scenes = source.split('\n---\n')
   const [index, setIndex] = useState(0)
   const [scene, setScene] = useState(scenes[index])
@@ -34,28 +28,15 @@ export default function AsemicApp({
     h: 'window' as number | 'window'
   })
 
-  // useEffect(() => {
-  //   return () => {
-  //     worker.terminate()
-  //   }
-  // }, [])
-
   let animationFrame = useRef(0)
   const worker = useRef<Worker>(null!)
-  useEffect(() => {
-    worker.current = new AsemicWorker() as Worker
-    return () => {
-      worker.current.terminate()
-    }
-  }, [])
-
-  const dispose = useRef<() => void>(null)
 
   useEffect(() => {
     invariant(canvas.current)
     const offscreenCanvas = new OffscreenCanvas(1, 1)
     let thisTexture = new CanvasTexture(offscreenCanvas)
     thisTexture.flipY = false
+    worker.current = new AsemicWorker() as Worker
     const onResize = () => {
       if (!canvas.current) return
       const boundingRect = canvas.current.getBoundingClientRect()
@@ -68,7 +49,7 @@ export default function AsemicApp({
       thisTexture.needsUpdate = true
       // TODO: resize thisTexture to fit the size of the canvas
 
-      window.postMessage({
+      worker.current.postMessage({
         settings: {
           height: offscreenCanvas.height,
           width: offscreenCanvas.width
@@ -79,6 +60,7 @@ export default function AsemicApp({
     const ctx = offscreenCanvas.getContext('2d')!
     const renderer = new Renderer(ctx)
 
+    // const onscreen = canvas.current.getContext('bitmaprenderer')!
     const onscreen = new WebGPURenderer({
       canvas: canvas.current
     })
@@ -86,13 +68,6 @@ export default function AsemicApp({
     const thisPass = texture(thisTexture)
     // const thisPass = vec4(1, 1, 1, 1)
     const postProcessing = new PostProcessing(onscreen, thisPass)
-
-    onscreen.init().then(() => {
-      onResize()
-      worker.current.postMessage({
-        source
-      })
-    })
 
     worker.current.onmessage = evt => {
       if (evt.data.settings) {
@@ -103,6 +78,9 @@ export default function AsemicApp({
       }
       if (evt.data.curves) {
         renderer.render(evt.data.curves)
+        // onscreen.transferFromImageBitmap(
+        //   offscreenCanvas.transferToImageBitmap()
+        // )
         thisTexture.needsUpdate = true
         postProcessing.render()
 
@@ -118,10 +96,24 @@ export default function AsemicApp({
         })
       }
     }
-
     window.addEventListener('resize', onResize)
+    onscreen.init().then(() => {
+      onResize()
 
-    dispose.current = () => {
+      worker.current.postMessage({
+        source,
+        settings
+      })
+    })
+
+    // onResize()
+
+    // worker.current.postMessage({
+    //   source,
+    //   settings: { height: offscreenCanvas.height, width: offscreenCanvas.width }
+    // })
+
+    const dispose = () => {
       cancelAnimationFrame(animationFrame.current)
       window.removeEventListener('resize', onResize)
       if (onscreen._initialized) {
@@ -131,9 +123,9 @@ export default function AsemicApp({
       thisTexture.dispose()
     }
     return () => {
-      dispose.current()
+      dispose()
     }
-  }, [settings, source])
+  }, [source])
 
   const [curves, setCurves] = useState<string[][]>([[]])
 
@@ -165,17 +157,6 @@ export default function AsemicApp({
     if (!editable.current) return
     editable.current.value! = source
   }, [source])
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      animationFrame,
-      settings,
-      setSettings,
-      worker
-    }),
-    [settings, animationFrame, worker]
-  )
 
   const parser = useMemo(() => new Parser(), [])
   return (
