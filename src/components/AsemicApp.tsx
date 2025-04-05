@@ -18,9 +18,13 @@ import { Parser } from './parse'
 import Renderer from './renderer'
 
 export default function AsemicApp({ source }: { source: string }) {
-  const scenes = source.split('\n---\n')
+  const scenes = source.split('\n\n---\n\n')
   const [index, setIndex] = useState(0)
   const [scene, setScene] = useState(scenes[index])
+  useEffect(() => {
+    setScene(scenes[index])
+  }, [index])
+  console.log(scene)
 
   const canvas = useRef<HTMLCanvasElement>(null)
   const [settings, setSettings] = useState({
@@ -99,7 +103,7 @@ export default function AsemicApp({ source }: { source: string }) {
         if (!settings.animating) return
         animationFrame.current = requestAnimationFrame(() => {
           worker.current.postMessage({
-            source,
+            source: scene,
             settings: {
               height: offscreenCanvas.height,
               width: offscreenCanvas.width
@@ -113,7 +117,7 @@ export default function AsemicApp({ source }: { source: string }) {
       onResize()
 
       worker.current.postMessage({
-        source,
+        source: scene,
         settings
       })
     })
@@ -138,7 +142,7 @@ export default function AsemicApp({ source }: { source: string }) {
     return () => {
       dispose()
     }
-  }, [source])
+  }, [scene])
 
   const [curves, setCurves] = useState<string[][]>([[]])
 
@@ -162,19 +166,37 @@ export default function AsemicApp({ source }: { source: string }) {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [curves, source, index])
+  }, [curves, scene, index])
 
-  const perform = true
-  const editable = useRef<HTMLTextAreaElement>(null!)
+  const perform = false
+  const editable = useRef<HTMLDivElement>(null!)
   useEffect(() => {
     if (!editable.current) return
-    editable.current.value! = source
-  }, [source])
+    editable.current.innerHTML = scene
+  }, [scene])
 
   const parser = useMemo(() => new Parser(), [])
   return (
     <>
-      <div className='asemic relative h-fit w-full'>
+      {!perform && (
+        <div
+          contentEditable
+          ref={editable}
+          className='h-[100px] overflow-auto w-full text-white p-2 text-base whitespace-pre'
+          style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}
+          onKeyDown={ev => {
+            console.log('keydown', ev)
+
+            // ev.stopPropagation()
+            if (ev.key === 'Enter' && ev.metaKey) {
+              setScene(ev.currentTarget.innerHTML)
+              window.navigator.clipboard.writeText(ev.currentTarget.innerHTML)
+            } else if (ev.key === 'Escape') {
+              ev.currentTarget.blur()
+            }
+          }}></div>
+      )}
+      <div className='relative h-fit w-full'>
         <canvas
           className=''
           onClick={ev => {
@@ -182,7 +204,7 @@ export default function AsemicApp({ source }: { source: string }) {
             parser.reset()
             const rect = ev.currentTarget.getBoundingClientRect()
             parser.set({ height: rect.height, width: rect.width })
-            parser.parse(editable.current.value)
+            parser.parse(editable.current.innerHTML)
             const mouse = new Pt(
               (ev.clientX - rect.left) / rect.width,
               (ev.clientY - rect.top) / rect.width
@@ -191,11 +213,12 @@ export default function AsemicApp({ source }: { source: string }) {
             mouse.divide(parser.transform.scale)
             mouse.subtract(parser.transform.translation)
 
-            editable.current.value =
-              editable.current.value +
+            const scrollSave = editable.current.scrollTop
+            editable.current.innerHTML =
+              editable.current.innerHTML +
               ` ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)}`
             ev.preventDefault()
-            editable.current.focus()
+            editable.current.scrollTo({ top: scrollSave })
           }}
           ref={canvas}
           style={{
@@ -207,20 +230,6 @@ export default function AsemicApp({ source }: { source: string }) {
           height={1}
           width={1}></canvas>
       </div>
-      {!perform && (
-        <textarea
-          ref={editable}
-          className='h-[100px] w-full text-white font-mono p-2'
-          onKeyDown={ev => {
-            // ev.stopPropagation()
-            if (ev.key === 'Enter' && ev.metaKey) {
-              setScene(ev.currentTarget.value)
-              window.navigator.clipboard.writeText(ev.currentTarget.value)
-            } else if (ev.key === 'Escape') {
-              ev.currentTarget.blur()
-            }
-          }}></textarea>
-      )}
     </>
   )
 }

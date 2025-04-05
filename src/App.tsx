@@ -10,5 +10,9 @@ export default function PluginApp({
   plugin: AsemicPlugin
   parent: AsemicFrame
 }) {
-  return <AsemicApp source={source} />
+  return (
+    <div className='asemic'>
+      <AsemicApp source={source} />
+    </div>
+  )
 }
