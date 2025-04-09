@@ -3,7 +3,8 @@ import { Parser } from './parse'
 let parser: Parser = new Parser()
 self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.settings) {
-    parser.set(ev.data.settings!)
+    parser.progress.height = ev.data.settings.height
+    parser.progress.width = ev.data.settings.width
   }
   if (ev.data.source) {
     parser.reset()

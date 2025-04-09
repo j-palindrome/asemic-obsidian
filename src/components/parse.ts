@@ -54,11 +54,6 @@ export class Parser {
   noiseIndex = 0
   noise = createNoise2D()
 
-  set({ height, width }: { height: number; width: number }) {
-    this.progress.height = height
-    this.progress.width = width
-  }
-
   reset() {
     this.noiseIndex = 0
     this.font.reset()
@@ -718,7 +713,7 @@ export class Parser {
       })
     }
 
-    if (source.includes('\n---')) {
+    if (/^\{\{[.\n]*?\}\}/.test(source)) {
       const parseSetting = (token: string) => {
         if (!token) return
         if (token.startsWith('!')) {
@@ -730,12 +725,12 @@ export class Parser {
           this.settings[token] = true
         }
       }
-      const [preSettings, afterSource] = splitString(source, '\n---')
+      const [preSettings, afterSource] = splitString(source, '}}')
 
       if (!this.settings) {
         this.settings = {}
 
-        for (let token of preSettings.split(/\s/g)) {
+        for (let token of preSettings.substring(2).split(/\s/g)) {
           parseSetting(token.trim())
         }
 
@@ -762,19 +757,22 @@ export class Parser {
       if (char === '"' && parsedString[i - 1] !== '\\') quote = !quote
 
       if (!quote) {
-        if (char === '[') inBrackets++
+        if (char === '{' && parsedString[i + 1] === '{') {
+          fontSettings = true
+          current += '{{' // Include the opening brace
+          i++
+          continue
+        } else if (char === '}' && parsedString[i + 1] === '}') {
+          fontSettings = false
+          current += '}}' // Include the closing brace
+          i++
+          continue
+        } else if (char === '[') inBrackets++
         else if (char === ']') inBrackets--
         else if (char === '(') inParentheses++
         else if (char === ')') inParentheses--
         else if (char === '{') inBraces++
         else if (char === '}') inBraces--
-        else if (
-          char === '-' &&
-          parsedString[i + 1] === '-' &&
-          parsedString[i + 2] === '-'
-        ) {
-          fontSettings = !fontSettings
-        }
       }
 
       if (
@@ -799,6 +797,28 @@ export class Parser {
     for (let i = 0; i < tokens.length; i++) {
       try {
         let token = tokens[i].trim()
+
+        if (token.startsWith('{{') && token.endsWith('}}')) {
+          token = token.substring(2, token.length - 2).trim()
+
+          if (token === '!') {
+            this.font.reset()
+          } else if (token.includes('\n')) {
+            for (let letter of token.split('\n')) {
+              if (!letter) continue
+              const [key, value] = splitString(letter.trim(), ':')
+              if (value === '!') this.font.resetCharacter(key)
+              else this.font.characters[key] = value
+            }
+          } else {
+            for (let letter of token.split(';')) {
+              if (!letter) continue
+              const [key, value] = splitString(letter.trim(), ':')
+              this.font.characters[key] = value
+            }
+          }
+          continue
+        }
 
         // Parse transformation
         if (token.startsWith('{') && token.endsWith('}')) {
@@ -839,28 +859,6 @@ export class Parser {
             this.currentCurve.push(point)
           })
 
-          continue
-        }
-
-        if (token.startsWith('---')) {
-          token = token.substring(3, token.length - 3).trim()
-
-          if (token === '!') {
-            this.font.reset()
-          } else if (token.includes('\n')) {
-            for (let letter of token.split('\n')) {
-              if (!letter) continue
-              const [key, value] = splitString(letter.trim(), ':')
-              if (value === '!') this.font.resetCharacter(key)
-              else this.font.characters[key] = value
-            }
-          } else {
-            for (let letter of token.split(';')) {
-              if (!letter) continue
-              const [key, value] = splitString(letter.trim(), ':')
-              this.font.characters[key] = value
-            }
-          }
           continue
         }
 
