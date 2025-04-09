@@ -747,6 +747,7 @@ export class Parser {
     let inBraces = 0
     let quote = false
     let fontSettings = false
+    let evaling = false
 
     const parsedString = source
       .replace(/^\/\/.*?$/gm, '')
@@ -755,19 +756,21 @@ export class Parser {
       const char = parsedString[i]
 
       if (char === '"' && parsedString[i - 1] !== '\\') quote = !quote
+      if (char === '`' && parsedString[i - 1] !== '\\') evaling = !evaling
+      if (char === '{' && parsedString[i + 1] === '{') {
+        fontSettings = true
+        current += '{{' // Include the opening brace
+        i++
+        continue
+      } else if (char === '}' && parsedString[i + 1] === '}') {
+        fontSettings = false
+        current += '}}' // Include the closing brace
+        i++
+        continue
+      }
 
-      if (!quote) {
-        if (char === '{' && parsedString[i + 1] === '{') {
-          fontSettings = true
-          current += '{{' // Include the opening brace
-          i++
-          continue
-        } else if (char === '}' && parsedString[i + 1] === '}') {
-          fontSettings = false
-          current += '}}' // Include the closing brace
-          i++
-          continue
-        } else if (char === '[') inBrackets++
+      if (!quote && !evaling && !fontSettings) {
+        if (char === '[') inBrackets++
         else if (char === ']') inBrackets--
         else if (char === '(') inParentheses++
         else if (char === ')') inParentheses--
@@ -778,6 +781,7 @@ export class Parser {
       if (
         !quote &&
         !fontSettings &&
+        !evaling &&
         (char === ' ' || char === '\n') &&
         inBrackets === 0 &&
         inParentheses === 0 &&
@@ -791,8 +795,6 @@ export class Parser {
         current += char
       }
     }
-
-    // if (current) tokens.push(current)
 
     for (let i = 0; i < tokens.length; i++) {
       try {
@@ -827,6 +829,11 @@ export class Parser {
         }
 
         // curve additions
+
+        if (token.startsWith('`')) {
+          eval(token.substring(1, token.length - 1))
+          continue
+        }
 
         if (token.startsWith('+')) {
           token = token.substring(1)

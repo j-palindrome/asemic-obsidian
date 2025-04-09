@@ -19,7 +19,7 @@ import Renderer from './renderer'
 import _, { flatMap, max, set } from 'lodash'
 
 export default function AsemicApp({ source }: { source: string }) {
-  const scenes = source.split('\n\n---\n\n')
+  const scenes = source.split('\n---\n')
   const [index, setIndex] = useState(0)
   const [scene, setScene] = useState(scenes[index])
   useEffect(() => {
