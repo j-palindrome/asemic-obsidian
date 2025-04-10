@@ -16,7 +16,7 @@ import invariant from 'tiny-invariant'
 import AsemicWorker from './asemic.worker'
 import { Parser } from './parse'
 import Renderer from './renderer'
-import _, { flatMap, max, set } from 'lodash'
+import _, { flatMap, keys, max, now, remove, set } from 'lodash'
 
 export default function AsemicApp({ source }: { source: string }) {
   const scenes = source.split('\n---\n')
@@ -64,7 +64,7 @@ export default function AsemicApp({ source }: { source: string }) {
 
       // thisTexture.needsUpdate = true
       worker.current.postMessage({
-        settings: {
+        progress: {
           height: offscreenCanvas.height,
           width: offscreenCanvas.width
         }
@@ -132,10 +132,11 @@ export default function AsemicApp({ source }: { source: string }) {
         // thisTexture.needsUpdate = true
         // postProcessing.render()
 
-        if (!settings.animating) return
+        if (!settingsRef.current.animating) return
         animationFrame.current = requestAnimationFrame(() => {
           worker.current.postMessage({
-            source: scene
+            source: scene,
+            progress: settings
           })
         })
       }
@@ -154,7 +155,7 @@ export default function AsemicApp({ source }: { source: string }) {
 
     worker.current.postMessage({
       source: scene,
-      settings
+      progress: settings
     })
 
     const dispose = () => {
@@ -205,6 +206,43 @@ export default function AsemicApp({ source }: { source: string }) {
   }, [scene])
 
   const parser = useMemo(() => new Parser(), [])
+
+  useEffect(() => {
+    let keysPressed: Record<string, number> = {}
+    let keyString = ''
+    const onKeyDown = (ev: KeyboardEvent) => {
+      if (ev.key === 'Backspace') {
+        if (ev.metaKey) {
+          keyString = ''
+        } else if (ev.altKey) {
+          keyString = keyString.slice(0, keyString.lastIndexOf(' '))
+        } else {
+          keyString = keyString.slice(0, -1)
+        }
+      } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
+        keyString += ev.key
+        keysPressed[ev.key] = performance.now()
+      }
+      worker.current.postMessage({
+        progress: {
+          keys: Object.keys(keysPressed)
+            .sort(x => keysPressed[x])
+            .join(''),
+          text: keyString
+        }
+      } as Data)
+    }
+    const onKeyUp = (ev: KeyboardEvent) => {
+      delete keysPressed[ev.key]
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+  }, [])
+
   return (
     <>
       {!perform && (

@@ -47,7 +47,15 @@ export class Parser {
     thickness: 1
   }
   transforms: Transform[] = []
-  progress = { point: 0, time: 0, curve: 0, height: 0, width: 0 }
+  progress = {
+    point: 0,
+    time: 0,
+    curve: 0,
+    height: 0,
+    width: 0,
+    keys: '',
+    text: ''
+  }
   font = defaultFont
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
   noiseTable: ((x: number, y: number) => number)[] = []
@@ -70,6 +78,8 @@ export class Parser {
       thickness: 1
     }
     this.currentCurve = new AsemicGroup()
+    this.progress.keys = ''
+    this.progress.text = ''
   }
 
   log(slice: number = 0) {
@@ -512,6 +522,12 @@ export class Parser {
         const slice = Number(args[0] || '0')
         console.log(this.log(slice))
       },
+      text: () => {
+        this.parse(this.progress.text)
+      },
+      keys: () => {
+        this.parse(this.progress.keys)
+      },
       within: argsStr => {
         const args = splitArgs(argsStr)
         const point0 = parsePoint(args[0])
@@ -829,7 +845,6 @@ export class Parser {
         }
 
         // curve additions
-
         if (token.startsWith('`')) {
           eval(token.substring(1, token.length - 1))
           continue
@@ -848,6 +863,7 @@ export class Parser {
             this.progress.point = 0
             this.progress.curve++
           }
+          continue
         }
 
         // Parse points definition
@@ -883,8 +899,8 @@ export class Parser {
                 .filter(Boolean)
                 .join(formatSpace(this.font.characters['\\.'])) +
               formatSpace(this.font.characters['\\$'])
-            // ' [0,0 0,0]'
           )
+          continue
         }
 
         // Parse function call

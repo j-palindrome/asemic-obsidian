@@ -1,15 +1,11 @@
 import { AsemicFont } from './defaultFont'
+import { Parser } from './parse'
 
 declare global {
-  type ParserSettings = {
-    height: number
-    width: number
-  }
-
   interface Data {
     font?: AsemicFont
     source?: string
-    settings?: ParserSettings
+    progress?: Partial<Parser['progress']>
   }
 }
 
