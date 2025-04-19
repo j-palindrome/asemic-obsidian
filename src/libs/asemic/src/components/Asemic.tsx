@@ -108,8 +108,6 @@ export function AsemicCanvas({
         <Toggle
           label='pause'
           cb={state => {
-            console.log('state;', state, 'audio', audio)
-
             if (state && !audio) {
               initAudio()
             } else setStarted(state)

@@ -38,7 +38,12 @@ export type Transform = {
 export class Parser {
   startTime = performance.now()
   curves: AsemicGroup[] = []
-  settings: Record<string, any>
+  settings: {
+    h: number | 'window' | 'auto'
+    debug: boolean
+    animating: boolean
+  }
+  debugged: string[] = []
   currentCurve: AsemicGroup = new AsemicGroup()
   transform: Transform = {
     scale: new Pt(1, 1),
@@ -203,6 +208,8 @@ export class Parser {
   }
 
   parse(source: string) {
+    const hasDebugged = this.debugged.includes(source)
+    if (!hasDebugged) this.debugged.push(source)
     source = source + ' '
     const splitString = (string: string, at: string) => {
       let index = string.indexOf(at)
@@ -523,6 +530,8 @@ export class Parser {
         console.log(this.log(slice))
       },
       text: () => {
+        // console.log('text', this.progress.text)
+
         this.parse(this.progress.text)
       },
       keys: () => {
@@ -538,19 +547,17 @@ export class Parser {
         ).boundingBox()
 
         const sub = bounds[0].$subtract(point0)
-        this.curves
-          .slice(slice)
-          .forEach(curve =>
-            curve
-              .subtract(sub)
-              .scale(
-                Math.min(
-                  (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
-                  (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
-                ),
-                point0
-              )
-          )
+        this.curves.slice(slice).forEach(curve => {
+          curve
+            .subtract(sub)
+            .scale(
+              Math.min(
+                (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
+                (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
+              ),
+              point0
+            )
+        })
       },
       '3': argsStr => {
         const args = splitArgs(argsStr)
@@ -729,14 +736,18 @@ export class Parser {
       })
     }
 
-    if (/^\{\{[.\n]*?\}\}/.test(source)) {
+    if (/^\s*\{\{(?:(?!\}\}).)*\}\}/.test(source)) {
       const parseSetting = (token: string) => {
         if (!token) return
         if (token.startsWith('!')) {
           this.settings[token.substring(1)] = false
         } else if (token.includes(':')) {
           const [key, value] = token.split(':')
-          this.settings[key] = evalExpr(value)
+          if (key === 'h' && (value === 'window' || value === 'auto')) {
+            this.settings[key] = value
+          } else {
+            this.settings[key] = evalExpr(value)
+          }
         } else {
           this.settings[token] = true
         }
@@ -746,7 +757,7 @@ export class Parser {
       if (!this.settings) {
         this.settings = {}
 
-        for (let token of preSettings.substring(2).split(/\s/g)) {
+        for (let token of preSettings.trim().substring(2).split(/\s/g)) {
           parseSetting(token.trim())
         }
 
@@ -863,7 +874,6 @@ export class Parser {
             this.progress.point = 0
             this.progress.curve++
           }
-          continue
         }
 
         // Parse points definition
@@ -926,6 +936,17 @@ export class Parser {
     if (this.currentCurve.length > 0) {
       this.curves.push(this.currentCurve)
       this.currentCurve = new AsemicGroup()
+    }
+
+    // error detection
+    if (this.settings.debug && !hasDebugged) {
+      const flatCurves = this.curves.flat()
+
+      if (
+        !flatCurves.find(x => x[0] <= 1 && x[0] >= 0 && x[1] <= 1 && x[1] >= 0)
+      ) {
+        console.error('Asemic: No points within [0,0] and [1,1]')
+      }
     }
   }
 

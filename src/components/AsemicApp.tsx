@@ -27,10 +27,48 @@ export default function AsemicApp({ source }: { source: string }) {
   }, [index])
 
   const canvas = useRef<HTMLCanvasElement>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const setFullscreen = () => {
+      if (!frame.current) return
+
+      const handleFullscreen = async () => {
+        try {
+          invariant(frame.current)
+          if (!document.fullscreenElement) {
+            frame.current.style.setProperty('height', '100vh', 'important')
+            await frame.current?.requestFullscreen()
+          } else {
+            frame.current.style.setProperty('height', '')
+            await document.exitFullscreen()
+          }
+        } catch (err) {
+          console.error('Fullscreen error:', err)
+        }
+      }
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault()
+          handleFullscreen()
+        }
+      }
+
+      window.addEventListener('keydown', handleKeyDown)
+
+      return () => {
+        window.removeEventListener('keydown', handleKeyDown)
+      }
+    }
+
+    return setFullscreen()
+  }, [])
+
   const [settings, setSettings] = useState({
     animating: true,
-    h: 'auto' as number | 'window' | 'auto'
-  })
+    debug: true,
+    h: 'auto'
+  } as Parser['settings'])
   const settingsRef = useRef(settings)
   useEffect(() => {
     settingsRef.current = settings
@@ -94,6 +132,8 @@ export default function AsemicApp({ source }: { source: string }) {
 
     worker.current.onmessage = evt => {
       if (evt.data.settings) {
+        console.log('settings', evt.data.settings)
+
         setSettings(settings => ({
           ...settings,
           ...evt.data.settings
@@ -104,7 +144,8 @@ export default function AsemicApp({ source }: { source: string }) {
           invariant(
             canvas.current &&
               canvas.current.width !== 0 &&
-              evt.data.curves.length > 0
+              evt.data.curves.length > 0,
+            `Failed: ${canvas.current} ${canvas.current?.width} ${evt.data.curves.length}`
           )
 
           const maxY = max(flatMap(evt.data.curves, '1'))! + 0.1
@@ -135,8 +176,7 @@ export default function AsemicApp({ source }: { source: string }) {
         if (!settingsRef.current.animating) return
         animationFrame.current = requestAnimationFrame(() => {
           worker.current.postMessage({
-            source: scene,
-            progress: settings
+            source: scene
           })
         })
       }
@@ -207,41 +247,51 @@ export default function AsemicApp({ source }: { source: string }) {
 
   const parser = useMemo(() => new Parser(), [])
 
-  useEffect(() => {
-    let keysPressed: Record<string, number> = {}
-    let keyString = ''
-    const onKeyDown = (ev: KeyboardEvent) => {
-      if (ev.key === 'Backspace') {
-        if (ev.metaKey) {
-          keyString = ''
-        } else if (ev.altKey) {
-          keyString = keyString.slice(0, keyString.lastIndexOf(' '))
-        } else {
-          keyString = keyString.slice(0, -1)
+  const useKeys = () => {
+    useEffect(() => {
+      let keysPressed: Record<string, number> = {}
+      let keyString = ''
+      const onKeyDown = (ev: KeyboardEvent) => {
+        // Check if this is a repeated key event (key held down)
+        // Skip adding to keyString if it's a repeated key
+        if (ev.repeat) {
+          return
         }
-      } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
-        keyString += ev.key
-        keysPressed[ev.key] = performance.now()
+        if (ev.key === 'Backspace') {
+          if (ev.metaKey) {
+            keyString = ''
+          } else if (ev.altKey) {
+            keyString = keyString.slice(0, keyString.lastIndexOf(' '))
+          } else {
+            keyString = keyString.slice(0, -1)
+          }
+        } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
+          keyString += ev.key
+          keysPressed[ev.key] = performance.now()
+        }
+        console.log('keys', keyString)
+
+        worker.current.postMessage({
+          progress: {
+            keys: Object.keys(keysPressed)
+              .sort(x => keysPressed[x])
+              .join(''),
+            text: keyString
+          }
+        } as Data)
       }
-      worker.current.postMessage({
-        progress: {
-          keys: Object.keys(keysPressed)
-            .sort(x => keysPressed[x])
-            .join(''),
-          text: keyString
-        }
-      } as Data)
-    }
-    const onKeyUp = (ev: KeyboardEvent) => {
-      delete keysPressed[ev.key]
-    }
-    window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('keyup', onKeyUp)
-    return () => {
-      window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('keyup', onKeyUp)
-    }
-  }, [])
+      const onKeyUp = (ev: KeyboardEvent) => {
+        delete keysPressed[ev.key]
+      }
+      window.addEventListener('keydown', onKeyDown)
+      window.addEventListener('keyup', onKeyUp)
+      return () => {
+        window.removeEventListener('keydown', onKeyDown)
+        window.removeEventListener('keyup', onKeyUp)
+      }
+    }, [])
+  }
+  useKeys()
 
   return (
     <>
@@ -261,7 +311,7 @@ export default function AsemicApp({ source }: { source: string }) {
             }
           }}></div>
       )}
-      <div className='relative h-fit w-full'>
+      <div className='relative h-fit w-full bg-black' ref={frame}>
         <canvas
           className=''
           onClick={ev => {
