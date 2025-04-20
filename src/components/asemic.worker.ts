@@ -16,7 +16,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
     const formattedCurves = parser.format()
     self.postMessage({
       curves: formattedCurves,
-      lastTransform: parser.transform
+      lastTransform: JSON.stringify(parser.transform)
     })
   }
 }

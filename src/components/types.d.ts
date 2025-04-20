@@ -9,7 +9,7 @@ declare global {
   }
   interface DataBack {
     osc?: { path: string; args: any[] }
-    lastTransform?: Transform
+    lastTransform?: string
     response?: 'editable'
     [string: string]: any
   }

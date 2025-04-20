@@ -117,7 +117,7 @@ export default function AsemicApp({
           }))
         }
         if (evt.data.lastTransform) {
-          lastTransform.current = evt.data.lastTransform
+          lastTransform.current = JSON.parse(evt.data.lastTransform)
         }
         if (evt.data.curves) {
           if (settingsRef.current.h === 'auto') {
