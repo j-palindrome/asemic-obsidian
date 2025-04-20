@@ -1,6 +1,6 @@
 import { PluginSettingTab, ValueComponent } from 'obsidian'
 import { Root } from 'react-dom/client'
-import AsemicPlugin from '../main'
+import AsemicPlugin from './AsemicFrame'
 
 export default class SettingsTab extends PluginSettingTab {
   plugin: AsemicPlugin

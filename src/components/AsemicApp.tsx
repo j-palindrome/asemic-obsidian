@@ -5,11 +5,18 @@ import { flatMap, max } from 'lodash'
 import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
-import { Parser } from './parse'
+import { Parser, Transform } from './parse'
 import Renderer from './renderer'
 import { Client } from 'node-osc'
+import ObsidianAPI from 'src/plugin/ObsidianApi'
 
-export default function AsemicApp({ source }: { source: string }) {
+export default function AsemicApp({
+  source,
+  obsidian
+}: {
+  source: string
+  obsidian?: ObsidianAPI
+}) {
   const [settingsSource, ...scenes] = source.split('---').map(x => x.trim())
 
   const [index, setIndex] = useState(0)
@@ -27,72 +34,90 @@ export default function AsemicApp({ source }: { source: string }) {
     settingsRef.current = settings
   }, [settings])
 
-  const worker = useRef<Worker>(null!)
+  const worker = useMemo(() => new AsemicWorker() as Worker, [])
+  const lastTransform = useRef<Transform>(null!)
   const setup = () => {
     const animationFrame = useRef(0)
-    const offscreenCanvas = useRef<OffscreenCanvas>(null!)
+    const offscreenCanvas = useMemo(() => new OffscreenCanvas(1080, 1080), [])
+    const renderer = useMemo(() => {
+      const ctx = offscreenCanvas.getContext('2d')!
+      return new Renderer(ctx)
+    }, [])
+    const onscreen = useRef<ImageBitmapRenderingContext>(null!)
+    const client = useMemo(() => new Client('localhost', 7001), [])
     const [isSetup, setIsSetup] = useState(false)
+    const onResize = () => {
+      if (!canvas.current) return
+      const boundingRect = canvas.current.getBoundingClientRect()
+      if (!boundingRect.width || !boundingRect.height) return
+      devicePixelRatio = 2
+
+      offscreenCanvas.width = boundingRect.width * devicePixelRatio
+      offscreenCanvas.height = boundingRect.height * devicePixelRatio
+      canvas.current.width = boundingRect.width * devicePixelRatio
+      canvas.current.height = boundingRect.height * devicePixelRatio
+
+      // onscreen.setDrawingBufferSize(
+      //   boundingRect.width,
+      //   boundingRect.height,
+      //   devicePixelRatio
+      // )
+
+      // thisTexture.needsUpdate = true
+      worker.postMessage({
+        progress: {
+          height: offscreenCanvas.height,
+          width: offscreenCanvas.width
+        }
+      })
+    }
+
     useEffect(() => {
       invariant(canvas.current)
-      offscreenCanvas.current = new OffscreenCanvas(1080, 1080)
       // let thisTexture = new CanvasTexture(offscreenCanvas)
       // thisTexture.flipY = false
-      worker.current = new AsemicWorker() as Worker
 
-      const onResize = () => {
-        if (!canvas.current) return
-        const boundingRect = canvas.current.getBoundingClientRect()
-        if (!boundingRect.width || !boundingRect.height) return
-        devicePixelRatio = 2
-
-        offscreenCanvas.current.width = boundingRect.width * devicePixelRatio
-        offscreenCanvas.current.height = boundingRect.height * devicePixelRatio
-        canvas.current.width = boundingRect.width * devicePixelRatio
-        canvas.current.height = boundingRect.height * devicePixelRatio
-
-        // onscreen.setDrawingBufferSize(
-        //   boundingRect.width,
-        //   boundingRect.height,
-        //   devicePixelRatio
-        // )
-
-        // thisTexture.needsUpdate = true
-        worker.current.postMessage({
-          progress: {
-            height: offscreenCanvas.current.height,
-            width: offscreenCanvas.current.width
-          }
-        })
-      }
       const resizeObserver = new ResizeObserver(onResize)
 
-      if (canvas.current) {
-        resizeObserver.observe(canvas.current)
-      }
+      resizeObserver.observe(canvas.current)
 
-      const ctx = offscreenCanvas.current.getContext('2d')!
-      const renderer = new Renderer(ctx)
-      const onscreen = canvas.current.getContext('bitmaprenderer')!
-      const client = new Client('localhost', 7001)
+      onscreen.current = canvas.current.getContext('bitmaprenderer')!
 
       window.addEventListener('resize', onResize)
       // onscreen.init().then(() => {
       //   onResize()
 
-      //   worker.current.postMessage({
+      //   worker.postMessage({
       //     source: scene,
       //     settings
       //   })
       // })
 
+      worker.postMessage({ settingsSource })
+      return () => {
+        resizeObserver.disconnect()
+        worker.terminate()
+        window.removeEventListener('resize', onResize)
+        cancelAnimationFrame(animationFrame.current)
+      }
+    }, [])
+
+    useEffect(() => {
+      onResize()
+      setIsSetup(true)
+    }, [settings])
+
+    useEffect(() => {
+      if (!isSetup) return
       const parseMessages = (evt: { data: DataBack }) => {
         if (evt.data.settings) {
           setSettings(settings => ({
             ...settingsRef.current,
             ...evt.data.settings
           }))
-          onResize()
-          setIsSetup(true)
+        }
+        if (evt.data.lastTransform) {
+          lastTransform.current = evt.data.lastTransform
         }
         if (evt.data.curves) {
           if (settingsRef.current.h === 'auto') {
@@ -113,7 +138,7 @@ export default function AsemicApp({ source }: { source: string }) {
               onResize()
 
               animationFrame.current = requestAnimationFrame(() => {
-                worker.current.postMessage({
+                worker.postMessage({
                   source: scene
                 })
               })
@@ -121,8 +146,8 @@ export default function AsemicApp({ source }: { source: string }) {
             }
           }
           renderer.render(evt.data.curves)
-          onscreen.transferFromImageBitmap(
-            offscreenCanvas.current.transferToImageBitmap()
+          onscreen.current.transferFromImageBitmap(
+            offscreenCanvas.transferToImageBitmap()
           )
 
           // thisTexture.needsUpdate = true
@@ -130,7 +155,7 @@ export default function AsemicApp({ source }: { source: string }) {
 
           if (!settingsRef.current.animating) return
           animationFrame.current = requestAnimationFrame(() => {
-            worker.current.postMessage({
+            worker.postMessage({
               source: scene
             })
           })
@@ -144,46 +169,27 @@ export default function AsemicApp({ source }: { source: string }) {
           //   'localhost',
           //   7000
           // )
-          console.log('sent', {
-            address: evt.data.osc.path,
-            args: evt.data.osc.args
-          })
           client.send(
             evt.data.osc.path,
             ...evt.data.osc.args.map(x => (x instanceof Pt ? [x.x, x.y] : x))
           )
         }
       }
-      worker.current.onmessage = parseMessages
+      worker.onmessage = parseMessages
 
-      worker.current.postMessage({ settingsSource })
-      return () => {
-        resizeObserver.disconnect()
-        worker.current.terminate()
-        window.removeEventListener('resize', onResize)
-        cancelAnimationFrame(animationFrame.current)
-      }
-    }, [])
-
-    useEffect(() => {
-      if (!isSetup) return
-      console.log('is setup', isSetup)
-
-      worker.current.postMessage({
+      worker.postMessage({
         source: scene
-        // progress: settings
       })
     }, [scene, isSetup])
   }
   setup()
 
   const editable = useRef<HTMLTextAreaElement>(null!)
+
   useEffect(() => {
     if (!editable.current) return
     editable.current.value = scene
   }, [scene])
-
-  const parser = useMemo(() => new Parser(), [])
 
   const useKeys = () => {
     useEffect(() => {
@@ -208,7 +214,7 @@ export default function AsemicApp({ source }: { source: string }) {
           keysPressed[ev.key] = performance.now()
         }
 
-        worker.current.postMessage({
+        worker.postMessage({
           progress: {
             keys: Object.keys(keysPressed)
               .sort(x => keysPressed[x])
@@ -244,24 +250,32 @@ export default function AsemicApp({ source }: { source: string }) {
           if (perform || !editable.current || !ev.altKey) return
           ev.preventDefault()
           ev.stopPropagation()
-          parser.reset()
-          const rect = ev.currentTarget.getBoundingClientRect()
-          parser.progress.height = rect.height
-          parser.progress.width = rect.width
-          parser.parse(editable.current.value)
+
+          const rect = editable.current.getBoundingClientRect()
           const mouse = new Pt(
             (ev.clientX - rect.left) / rect.width,
             (ev.clientY - rect.top) / rect.width
           )
-          mouse.rotate2D(parser.transform.rotation * Math.PI * 2 * -1)
-          mouse.divide(parser.transform.scale)
-          mouse.subtract(parser.transform.translation)
+          const listenForResponse = (ev: { data: DataBack }) => {
+            console.log('got response')
 
-          const scrollSave = editable.current.scrollTop
-          editable.current.value =
-            editable.current.value +
-            ` ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)}`
-          editable.current.scrollTo({ top: scrollSave })
+            mouse.rotate2D(lastTransform.current.rotation * Math.PI * 2 * -1)
+            mouse.divide(lastTransform.current.scale)
+            mouse.subtract(lastTransform.current.translation)
+
+            const scrollSave = editable.current.scrollTop
+            editable.current.value =
+              editable.current.value +
+              ` ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)}`
+            editable.current.scrollTo({ top: scrollSave })
+          }
+          worker.addEventListener('message', listenForResponse, {
+            once: true
+          })
+          worker.postMessage({
+            source: editable.current.value
+          })
+          console.log('bound')
         }}>
         <canvas
           style={{
@@ -332,8 +346,6 @@ export default function AsemicApp({ source }: { source: string }) {
                   window.navigator.clipboard.writeText(ev.currentTarget.value)
                 } else if (ev.key === 'f' && ev.metaKey) {
                   editable.current.blur()
-                  console.log('exit fullscreen')
-
                   // ev.preventDefault()
                   // ev.stopPropagation()
                   // frame.current!.focus()

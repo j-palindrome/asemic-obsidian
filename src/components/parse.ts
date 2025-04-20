@@ -63,7 +63,7 @@ export class Parser {
     keys: '',
     text: ''
   }
-  fonts = { default: new DefaultFont() }
+  fonts: Record<string, AsemicFont> = { default: new DefaultFont() }
   currentFont = 'default'
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
   noiseTable: ((x: number, y: number) => number)[] = []
@@ -877,23 +877,21 @@ export class Parser {
         if (token.startsWith('{{') && token.endsWith('}}')) {
           token = token.substring(2, token.length - 2).trim()
 
-          if (token === '!') {
-            this.fonts[this.currentFont].reset()
-          } else if (token.includes('\n')) {
-            for (let letter of token.split('\n')) {
-              if (!letter) continue
-              const [key, value] = splitString(letter.trim(), ':')
-              if (value === '!')
-                this.fonts[this.currentFont].resetCharacter(key)
-              else this.fonts[this.currentFont].characters[key] = value
-            }
+          const fontName = token.match(/^[a-zA-Z0-9]+/)
+          if (fontName) {
+            this.currentFont = fontName[0]
+            token = token.replace(fontName[0], '')
+          }
+          if (!this.fonts[this.currentFont]) {
+            this.fonts[this.currentFont] = new AsemicFont(token)
           } else {
-            for (let letter of token.split(';')) {
-              if (!letter) continue
-              const [key, value] = splitString(letter.trim(), ':')
-              this.fonts[this.currentFont].characters[key] = value
+            if (token === '!') {
+              this.fonts[this.currentFont].reset()
+            } else {
+              this.fonts[this.currentFont].parseCharacters(token)
             }
           }
+
           continue
         } else if (token.startsWith('{') && token.endsWith('}')) {
           parseTransform(token)

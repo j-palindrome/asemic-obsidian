@@ -3,7 +3,7 @@ import { splitString } from 'src/plugin/settings'
 
 export class AsemicFont {
   protected defaultCharacters: Record<string, string> = {}
-  characters: Record<string, string>
+  characters: Record<string, string> = {}
   reset() {
     this.characters = { ...this.defaultCharacters }
   }

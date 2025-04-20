@@ -14,7 +14,7 @@ if you want to view the source, please visit the github repository of this plugi
 const MODE = process.env.MODE
 const VAULT = process.env.VAULT
 
-let entryPoints = [`src/main.tsx`, `src/styles.css`]
+let entryPoints = [`src/main.ts`, `src/styles.css`]
 
 const plugins = [
   postcss(),
