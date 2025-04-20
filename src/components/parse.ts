@@ -43,6 +43,7 @@ export class Parser {
     h: number | 'window' | 'auto'
     debug: boolean
     animating: boolean
+    perform: boolean
   } = defaultSettings
   debugged: string[] = []
   currentCurve: AsemicGroup = new AsemicGroup()

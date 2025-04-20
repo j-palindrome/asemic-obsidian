@@ -18,8 +18,8 @@ export default function AsemicApp({ source }: { source: string }) {
     setScene(scenes[index])
   }, [index])
 
-  const canvas = useRef<HTMLCanvasElement>(null)
-  const frame = useRef<HTMLDivElement>(null)
+  const canvas = useRef<HTMLCanvasElement>(null!)
+  const frame = useRef<HTMLDivElement>(null!)
 
   const [settings, setSettings] = useState(defaultSettings)
   const settingsRef = useRef(settings)
@@ -27,166 +27,156 @@ export default function AsemicApp({ source }: { source: string }) {
     settingsRef.current = settings
   }, [settings])
 
-  let animationFrame = useRef(0)
   const worker = useRef<Worker>(null!)
+  const setup = () => {
+    const animationFrame = useRef(0)
+    const offscreenCanvas = useRef<OffscreenCanvas>(null!)
+    const [isSetup, setIsSetup] = useState(false)
+    useEffect(() => {
+      invariant(canvas.current)
+      offscreenCanvas.current = new OffscreenCanvas(1080, 1080)
+      // let thisTexture = new CanvasTexture(offscreenCanvas)
+      // thisTexture.flipY = false
+      worker.current = new AsemicWorker() as Worker
 
-  useEffect(() => {
-    invariant(canvas.current)
-    const offscreenCanvas = new OffscreenCanvas(1080, 1080)
-    // let thisTexture = new CanvasTexture(offscreenCanvas)
-    // thisTexture.flipY = false
-    worker.current = new AsemicWorker() as Worker
-    const onResize = () => {
-      if (!canvas.current) return
-      const boundingRect = canvas.current.getBoundingClientRect()
-      if (!boundingRect.width || !boundingRect.height) return
-      devicePixelRatio = 2
+      const onResize = () => {
+        if (!canvas.current) return
+        const boundingRect = canvas.current.getBoundingClientRect()
+        if (!boundingRect.width || !boundingRect.height) return
+        devicePixelRatio = 2
 
-      offscreenCanvas.width = boundingRect.width * devicePixelRatio
-      offscreenCanvas.height = boundingRect.height * devicePixelRatio
-      canvas.current.width = boundingRect.width * devicePixelRatio
-      canvas.current.height = boundingRect.height * devicePixelRatio
+        offscreenCanvas.current.width = boundingRect.width * devicePixelRatio
+        offscreenCanvas.current.height = boundingRect.height * devicePixelRatio
+        canvas.current.width = boundingRect.width * devicePixelRatio
+        canvas.current.height = boundingRect.height * devicePixelRatio
 
-      // onscreen.setDrawingBufferSize(
-      //   boundingRect.width,
-      //   boundingRect.height,
-      //   devicePixelRatio
-      // )
-
-      // thisTexture.needsUpdate = true
-      worker.current.postMessage({
-        progress: {
-          height: offscreenCanvas.height,
-          width: offscreenCanvas.width
-        }
-      })
-    }
-    const resizeObserver = new ResizeObserver(onResize)
-
-    if (canvas.current) {
-      resizeObserver.observe(canvas.current)
-    }
-
-    const ctx = offscreenCanvas.getContext('2d')!
-    const renderer = new Renderer(ctx)
-
-    const onscreen = canvas.current.getContext('bitmaprenderer')!
-    // const onscreen = new WebGPURenderer({
-    //   canvas: canvas.current,
-    //   antialias: true,
-    //   depth: false,
-    //   alpha: true,
-    //   powerPreference: 'high-performance',
-    //   colorBufferType: FloatType
-    // })
-
-    // const thisPass = texture(thisTexture)
-    // const postProcessing = new PostProcessing(onscreen, thisPass)
-
-    const client = new Client('localhost', 7001)
-    const parseMessages = (evt: { data: DataBack }) => {
-      if (evt.data.settings) {
-        setSettings(settings => ({
-          ...settings,
-          ...evt.data.settings
-        }))
-      }
-      if (evt.data.curves) {
-        if (settingsRef.current.h === 'auto') {
-          invariant(
-            canvas.current &&
-              canvas.current.width !== 0 &&
-              evt.data.curves.length > 0,
-            `Failed: ${canvas.current} ${canvas.current?.width} ${evt.data.curves.length}`
-          )
-
-          const maxY = max(flatMap(evt.data.curves, '1'))! + 0.1
-
-          if (
-            canvas.current.height !== Math.floor(maxY * canvas.current.width)
-          ) {
-            canvas.current.height = canvas.current.width * maxY
-
-            onResize()
-
-            animationFrame.current = requestAnimationFrame(() => {
-              worker.current.postMessage({
-                source: scene
-              })
-            })
-            return
-          }
-        }
-        renderer.render(evt.data.curves)
-        onscreen.transferFromImageBitmap(
-          offscreenCanvas.transferToImageBitmap()
-        )
+        // onscreen.setDrawingBufferSize(
+        //   boundingRect.width,
+        //   boundingRect.height,
+        //   devicePixelRatio
+        // )
 
         // thisTexture.needsUpdate = true
-        // postProcessing.render()
+        worker.current.postMessage({
+          progress: {
+            height: offscreenCanvas.current.height,
+            width: offscreenCanvas.current.width
+          }
+        })
+      }
+      const resizeObserver = new ResizeObserver(onResize)
 
-        if (!settingsRef.current.animating) return
-        animationFrame.current = requestAnimationFrame(() => {
-          worker.current.postMessage({
-            source: scene
+      if (canvas.current) {
+        resizeObserver.observe(canvas.current)
+      }
+
+      const ctx = offscreenCanvas.current.getContext('2d')!
+      const renderer = new Renderer(ctx)
+      const onscreen = canvas.current.getContext('bitmaprenderer')!
+      const client = new Client('localhost', 7001)
+
+      window.addEventListener('resize', onResize)
+      // onscreen.init().then(() => {
+      //   onResize()
+
+      //   worker.current.postMessage({
+      //     source: scene,
+      //     settings
+      //   })
+      // })
+
+      const parseMessages = (evt: { data: DataBack }) => {
+        if (evt.data.settings) {
+          setSettings(settings => ({
+            ...settingsRef.current,
+            ...evt.data.settings
+          }))
+          onResize()
+          setIsSetup(true)
+        }
+        if (evt.data.curves) {
+          if (settingsRef.current.h === 'auto') {
+            invariant(
+              canvas.current &&
+                canvas.current.width !== 0 &&
+                evt.data.curves.length > 0,
+              `Failed: ${canvas.current} ${canvas.current?.width} ${evt.data.curves.length}`
+            )
+
+            const maxY = max(flatMap(evt.data.curves, '1'))! + 0.1
+
+            if (
+              canvas.current.height !== Math.floor(maxY * canvas.current.width)
+            ) {
+              canvas.current.height = canvas.current.width * maxY
+
+              onResize()
+
+              animationFrame.current = requestAnimationFrame(() => {
+                worker.current.postMessage({
+                  source: scene
+                })
+              })
+              return
+            }
+          }
+          renderer.render(evt.data.curves)
+          onscreen.transferFromImageBitmap(
+            offscreenCanvas.current.transferToImageBitmap()
+          )
+
+          // thisTexture.needsUpdate = true
+          // postProcessing.render()
+
+          if (!settingsRef.current.animating) return
+          animationFrame.current = requestAnimationFrame(() => {
+            worker.current.postMessage({
+              source: scene
+            })
           })
-        })
+        }
+        if (evt.data.osc) {
+          // client.send(
+          //   {
+          //     address: evt.data.osc.path,
+          //     args: evt.data.osc.args
+          //   },
+          //   'localhost',
+          //   7000
+          // )
+          console.log('sent', {
+            address: evt.data.osc.path,
+            args: evt.data.osc.args
+          })
+          client.send(
+            evt.data.osc.path,
+            ...evt.data.osc.args.map(x => (x instanceof Pt ? [x.x, x.y] : x))
+          )
+        }
       }
-      if (evt.data.osc) {
-        // client.send(
-        //   {
-        //     address: evt.data.osc.path,
-        //     args: evt.data.osc.args
-        //   },
-        //   'localhost',
-        //   7000
-        // )
-        console.log('sent', {
-          address: evt.data.osc.path,
-          args: evt.data.osc.args
-        })
-        client.send(
-          evt.data.osc.path,
-          ...evt.data.osc.args.map(x => (x instanceof Pt ? [x.x, x.y] : x))
-        )
+      worker.current.onmessage = parseMessages
+
+      worker.current.postMessage({ settingsSource })
+      return () => {
+        resizeObserver.disconnect()
+        worker.current.terminate()
+        window.removeEventListener('resize', onResize)
+        cancelAnimationFrame(animationFrame.current)
       }
-    }
-    worker.current.onmessage = parseMessages
-    window.addEventListener('resize', onResize)
-    // onscreen.init().then(() => {
-    //   onResize()
+    }, [])
 
-    //   worker.current.postMessage({
-    //     source: scene,
-    //     settings
-    //   })
-    // })
+    useEffect(() => {
+      if (!isSetup) return
+      console.log('is setup', isSetup)
 
-    onResize()
+      worker.current.postMessage({
+        source: scene
+        // progress: settings
+      })
+    }, [scene, isSetup])
+  }
+  setup()
 
-    worker.current.postMessage({
-      settingsSource,
-      source: scene,
-      progress: settings
-    })
-
-    const dispose = () => {
-      resizeObserver.disconnect()
-      cancelAnimationFrame(animationFrame.current)
-      window.removeEventListener('resize', onResize)
-      // if (onscreen._initialized) {
-      //   onscreen.dispose()
-      // }
-      worker.current.terminate()
-      // thisTexture.dispose()
-    }
-
-    return () => {
-      dispose()
-    }
-  }, [scene])
-
-  const perform = false
   const editable = useRef<HTMLTextAreaElement>(null!)
   useEffect(() => {
     if (!editable.current) return
@@ -240,6 +230,11 @@ export default function AsemicApp({ source }: { source: string }) {
   }
   useKeys()
 
+  const [perform, setPerform] = useState(settings.perform)
+  useEffect(() => {
+    setPerform(settings.perform)
+  }, [settings.perform])
+
   return (
     <>
       <div
@@ -278,9 +273,9 @@ export default function AsemicApp({ source }: { source: string }) {
           ref={canvas}
           height={1080}
           width={1080}></canvas>
-        {!perform && (
+        {!perform ? (
           <div className='fixed top-0 left-0 h-full w-[calc(100%-50px)]'>
-            <div className='w-full h-fit flex justify-end *:!block *:!mr-2 *:!bg-transparent *:!cursor-pointer *:hover:!bg-white/20 bottom-0 left-0 font-mono *:!text-white/50 *:!border-0 *:!text-xs'>
+            <div className='w-full h-fit flex justify-end'>
               <button
                 onClick={async () => {
                   try {
@@ -302,6 +297,7 @@ export default function AsemicApp({ source }: { source: string }) {
                 }}>
                 fullscreen
               </button>
+              <button onClick={() => setPerform(true)}>perform</button>
               <button
                 onClick={() => {
                   setIndex(index - 1 < 0 ? scenes.length - 1 : index - 1)
@@ -317,6 +313,7 @@ export default function AsemicApp({ source }: { source: string }) {
             </div>
             <textarea
               ref={editable}
+              defaultValue={scene}
               className='overflow-auto text-white p-2 text-sm bg-transparent h-full w-full !resize-none !outline-none !border-none opacity-50 text-right !shadow-none'
               style={{
                 fontFamily: 'Fira Code',
@@ -342,6 +339,10 @@ export default function AsemicApp({ source }: { source: string }) {
                   // frame.current!.focus()
                 }
               }}></textarea>
+          </div>
+        ) : (
+          <div className='fixed top-0 right-10'>
+            <button onClick={() => setPerform(false)}>...</button>
           </div>
         )}
       </div>

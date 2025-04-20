@@ -3,7 +3,8 @@ import { Parser } from 'src/components/parse'
 export const defaultSettings: Parser['settings'] = {
   animating: true,
   debug: true,
-  h: 'auto'
+  h: 'auto',
+  perform: false
 }
 
 export const splitString = (string: string, at: string) => {
