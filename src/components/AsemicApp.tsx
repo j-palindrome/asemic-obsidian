@@ -317,7 +317,7 @@ export default function AsemicApp({ source }: { source: string }) {
             </div>
             <textarea
               ref={editable}
-              className='overflow-auto text-white p-2 text-sm bg-transparent h-full w-full !resize-none !outline-none !border-none opacity-50 text-right'
+              className='overflow-auto text-white p-2 text-sm bg-transparent h-full w-full !resize-none !outline-none !border-none opacity-50 text-right !shadow-none'
               style={{
                 fontFamily: 'Fira Code',
                 whiteSpace: 'pre-wrap',
