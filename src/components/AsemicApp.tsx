@@ -1,25 +1,17 @@
 import { Pt } from 'pts'
-import {
-  useEffect,
-  useRef,
-  useState,
-  useMemo,
-  forwardRef,
-  RefObject,
-  useImperativeHandle
-} from 'react'
-import { CanvasTexture, FloatType } from 'three'
-import { PostProcessing, WebGPURenderer } from 'three/src/Three.WebGPU.js'
-import { texture } from 'three/tsl'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import invariant from 'tiny-invariant'
+import { flatMap, max } from 'lodash'
+import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
 import { Parser } from './parse'
 import Renderer from './renderer'
-import _, { flatMap, keys, max, now, remove, set } from 'lodash'
+import { Client } from 'node-osc'
 
 export default function AsemicApp({ source }: { source: string }) {
-  const scenes = source.split('\n---\n')
+  const [settingsSource, ...scenes] = source.split('---').map(x => x.trim())
+
   const [index, setIndex] = useState(0)
   const [scene, setScene] = useState(scenes[index])
   useEffect(() => {
@@ -28,47 +20,8 @@ export default function AsemicApp({ source }: { source: string }) {
 
   const canvas = useRef<HTMLCanvasElement>(null)
   const frame = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const setFullscreen = () => {
-      if (!frame.current) return
 
-      const handleFullscreen = async () => {
-        try {
-          invariant(frame.current)
-          if (!document.fullscreenElement) {
-            frame.current.style.setProperty('height', '100vh', 'important')
-            await frame.current?.requestFullscreen()
-          } else {
-            frame.current.style.setProperty('height', '')
-            await document.exitFullscreen()
-          }
-        } catch (err) {
-          console.error('Fullscreen error:', err)
-        }
-      }
-
-      const handleKeyDown = (e: KeyboardEvent) => {
-        if (e.key === 'f' && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault()
-          handleFullscreen()
-        }
-      }
-
-      window.addEventListener('keydown', handleKeyDown)
-
-      return () => {
-        window.removeEventListener('keydown', handleKeyDown)
-      }
-    }
-
-    return setFullscreen()
-  }, [])
-
-  const [settings, setSettings] = useState({
-    animating: true,
-    debug: true,
-    h: 'auto'
-  } as Parser['settings'])
+  const [settings, setSettings] = useState(defaultSettings)
   const settingsRef = useRef(settings)
   useEffect(() => {
     settingsRef.current = settings
@@ -130,10 +83,9 @@ export default function AsemicApp({ source }: { source: string }) {
     // const thisPass = texture(thisTexture)
     // const postProcessing = new PostProcessing(onscreen, thisPass)
 
-    worker.current.onmessage = evt => {
+    const client = new Client('localhost', 7001)
+    const parseMessages = (evt: { data: DataBack }) => {
       if (evt.data.settings) {
-        console.log('settings', evt.data.settings)
-
         setSettings(settings => ({
           ...settings,
           ...evt.data.settings
@@ -180,7 +132,26 @@ export default function AsemicApp({ source }: { source: string }) {
           })
         })
       }
+      if (evt.data.osc) {
+        // client.send(
+        //   {
+        //     address: evt.data.osc.path,
+        //     args: evt.data.osc.args
+        //   },
+        //   'localhost',
+        //   7000
+        // )
+        console.log('sent', {
+          address: evt.data.osc.path,
+          args: evt.data.osc.args
+        })
+        client.send(
+          evt.data.osc.path,
+          ...evt.data.osc.args.map(x => (x instanceof Pt ? [x.x, x.y] : x))
+        )
+      }
     }
+    worker.current.onmessage = parseMessages
     window.addEventListener('resize', onResize)
     // onscreen.init().then(() => {
     //   onResize()
@@ -194,6 +165,7 @@ export default function AsemicApp({ source }: { source: string }) {
     onResize()
 
     worker.current.postMessage({
+      settingsSource,
       source: scene,
       progress: settings
     })
@@ -214,35 +186,11 @@ export default function AsemicApp({ source }: { source: string }) {
     }
   }, [scene])
 
-  const [curves, setCurves] = useState<string[][]>([[]])
-
-  useEffect(() => {
-    const advance = (direction: 1 | -1) => {
-      const newScene =
-        direction < 0
-          ? Math.max(index - 1, 0)
-          : Math.min(index + 1, scenes.length - 1)
-      window.location.replace(`http://localhost:5173?scene=${newScene}`)
-    }
-    const onKeyDown = (ev: KeyboardEvent) => {
-      if (ev.key === 'ArrowRight' && ev.altKey) {
-        advance(1)
-      } else if (ev.key === 'ArrowLeft' && ev.altKey) {
-        advance(-1)
-      } else if (ev.key === 'Escape') {
-        setCurves([[]])
-        setScene(scenes[index])
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [curves, scene, index])
-
   const perform = false
-  const editable = useRef<HTMLDivElement>(null!)
+  const editable = useRef<HTMLTextAreaElement>(null!)
   useEffect(() => {
     if (!editable.current) return
-    editable.current.innerHTML = scene
+    editable.current.value = scene
   }, [scene])
 
   const parser = useMemo(() => new Parser(), [])
@@ -269,7 +217,6 @@ export default function AsemicApp({ source }: { source: string }) {
           keyString += ev.key
           keysPressed[ev.key] = performance.now()
         }
-        console.log('keys', keyString)
 
         worker.current.postMessage({
           progress: {
@@ -295,56 +242,108 @@ export default function AsemicApp({ source }: { source: string }) {
 
   return (
     <>
-      {!perform && (
-        <div
-          contentEditable
-          ref={editable}
-          className='h-[100px] overflow-auto w-full text-white p-2 text-base whitespace-pre'
-          style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}
-          onKeyDown={ev => {
-            // ev.stopPropagation()
-            if (ev.key === 'Enter' && ev.metaKey) {
-              setScene(ev.currentTarget.innerHTML)
-              window.navigator.clipboard.writeText(ev.currentTarget.innerHTML)
-            } else if (ev.key === 'Escape') {
-              ev.currentTarget.blur()
-            }
-          }}></div>
-      )}
-      <div className='relative h-fit w-full bg-black' ref={frame}>
-        <canvas
-          className=''
-          onClick={ev => {
-            if (perform || !editable.current) return
-            parser.reset()
-            const rect = ev.currentTarget.getBoundingClientRect()
-            parser.progress.height = rect.height
-            parser.progress.width = rect.width
-            parser.parse(editable.current.innerHTML)
-            const mouse = new Pt(
-              (ev.clientX - rect.left) / rect.width,
-              (ev.clientY - rect.top) / rect.width
-            )
-            mouse.rotate2D(parser.transform.rotation * Math.PI * 2 * -1)
-            mouse.divide(parser.transform.scale)
-            mouse.subtract(parser.transform.translation)
+      <div
+        className={`relative h-fit w-full bg-black overflow-auto max-h-[calc(100vh-100px)]`}
+        ref={frame}
+        onClick={ev => {
+          if (perform || !editable.current || !ev.altKey) return
+          ev.preventDefault()
+          ev.stopPropagation()
+          parser.reset()
+          const rect = ev.currentTarget.getBoundingClientRect()
+          parser.progress.height = rect.height
+          parser.progress.width = rect.width
+          parser.parse(editable.current.value)
+          const mouse = new Pt(
+            (ev.clientX - rect.left) / rect.width,
+            (ev.clientY - rect.top) / rect.width
+          )
+          mouse.rotate2D(parser.transform.rotation * Math.PI * 2 * -1)
+          mouse.divide(parser.transform.scale)
+          mouse.subtract(parser.transform.translation)
 
-            const scrollSave = editable.current.scrollTop
-            editable.current.innerHTML =
-              editable.current.innerHTML +
-              ` ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)}`
-            ev.preventDefault()
-            editable.current.scrollTo({ top: scrollSave })
-          }}
-          ref={canvas}
+          const scrollSave = editable.current.scrollTop
+          editable.current.value =
+            editable.current.value +
+            ` ${mouse.x.toFixed(2)},${mouse.y.toFixed(2)}`
+          editable.current.scrollTo({ top: scrollSave })
+        }}>
+        <canvas
           style={{
             width: '100%',
-            height: settings.h === 'window' ? '100%' : undefined,
+            height: settings.h === 'window' ? '100vh' : undefined,
             aspectRatio:
               settings.h === 'window' ? undefined : `1 / ${settings.h}`
           }}
+          ref={canvas}
           height={1080}
           width={1080}></canvas>
+        {!perform && (
+          <div className='fixed top-0 left-0 h-full w-[calc(100%-50px)]'>
+            <div className='w-full h-fit flex justify-end *:!block *:!mr-2 *:!bg-transparent *:!cursor-pointer *:hover:!bg-white/20 bottom-0 left-0 font-mono *:!text-white/50 *:!border-0 *:!text-xs'>
+              <button
+                onClick={async () => {
+                  try {
+                    invariant(frame.current)
+                    if (!document.fullscreenElement) {
+                      frame.current.style.setProperty(
+                        'height',
+                        '100vh',
+                        'important'
+                      )
+                      await frame.current?.requestFullscreen()
+                    } else {
+                      frame.current.style.setProperty('height', '')
+                      await document.exitFullscreen()
+                    }
+                  } catch (err) {
+                    console.error('Fullscreen error:', err)
+                  }
+                }}>
+                fullscreen
+              </button>
+              <button
+                onClick={() => {
+                  setIndex(index - 1 < 0 ? scenes.length - 1 : index - 1)
+                }}>
+                {'<'}
+              </button>
+              <button
+                onClick={() => {
+                  setIndex(index + 1 > scenes.length - 1 ? 0 : index + 1)
+                }}>
+                {'>'}
+              </button>
+            </div>
+            <textarea
+              ref={editable}
+              className='overflow-auto text-white p-2 text-sm bg-transparent h-full w-full !resize-none !outline-none !border-none opacity-50 text-right'
+              style={{
+                fontFamily: 'Fira Code',
+                whiteSpace: 'pre-wrap',
+                fontWeight: 100,
+                boxShadow: 'none !important'
+              }}
+              onBlur={ev => {
+                ev.preventDefault()
+                ev.stopPropagation()
+              }}
+              onKeyDown={ev => {
+                // ev.stopPropagation()
+                if (ev.key === 'Enter' && ev.metaKey) {
+                  setScene(ev.currentTarget.value)
+                  window.navigator.clipboard.writeText(ev.currentTarget.value)
+                } else if (ev.key === 'f' && ev.metaKey) {
+                  editable.current.blur()
+                  console.log('exit fullscreen')
+
+                  // ev.preventDefault()
+                  // ev.stopPropagation()
+                  // frame.current!.focus()
+                }
+              }}></textarea>
+          </div>
+        )}
       </div>
     </>
   )

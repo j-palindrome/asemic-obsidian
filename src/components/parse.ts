@@ -26,6 +26,7 @@ import { AsemicGroup, AsemicPt } from './AsemicPt'
 import { AsemicFont, defaultFont } from './defaultFont'
 import _, { cloneDeep } from 'lodash'
 import { createNoise2D } from 'simplex-noise'
+import { defaultSettings, splitString } from 'src/plugin/settings'
 
 export type Transform = {
   scale: Pt
@@ -42,7 +43,7 @@ export class Parser {
     h: number | 'window' | 'auto'
     debug: boolean
     animating: boolean
-  }
+  } = defaultSettings
   debugged: string[] = []
   currentCurve: AsemicGroup = new AsemicGroup()
   transform: Transform = {
@@ -66,8 +67,10 @@ export class Parser {
   noiseTable: ((x: number, y: number) => number)[] = []
   noiseIndex = 0
   noise = createNoise2D()
+  lastWithin = 0
 
   reset() {
+    this.lastWithin = 0
     this.noiseIndex = 0
     this.font.reset()
     this.curves = []
@@ -83,8 +86,6 @@ export class Parser {
       thickness: 1
     }
     this.currentCurve = new AsemicGroup()
-    this.progress.keys = ''
-    this.progress.text = ''
   }
 
   log(slice: number = 0) {
@@ -207,14 +208,35 @@ export class Parser {
     return newCurves
   }
 
+  parseSettings(source: string) {
+    const parseSetting = (token: string) => {
+      if (!token) return
+      if (token.startsWith('!')) {
+        this.settings[token.substring(1)] = false
+      } else if (token.includes(':')) {
+        const [key, value] = token.split(':')
+        if (key === 'h' && (value === 'window' || value === 'auto')) {
+          this.settings[key] = value
+        } else {
+          this.settings[key] = parseFloat(value)
+        }
+      } else {
+        this.settings[token] = true
+      }
+    }
+
+    this.settings = {} as Parser['settings']
+
+    for (let token of source.trim().split(/\s+/g)) {
+      parseSetting(token.trim())
+    }
+    postMessage({ settings: this.settings })
+  }
+
   parse(source: string) {
     const hasDebugged = this.debugged.includes(source)
     if (!hasDebugged) this.debugged.push(source)
     source = source + ' '
-    const splitString = (string: string, at: string) => {
-      let index = string.indexOf(at)
-      return [string.slice(0, index), string.slice(index + at.length)]
-    }
 
     const evalExpr = (expr: string, replace = true): number => {
       if (expr.length === 0) throw new Error('Empty expression')
@@ -522,7 +544,40 @@ export class Parser {
       ]
     }
 
-    const splitArgs = (argsStr: string) => argsStr.split(' ').filter(Boolean)
+    const splitArgs = (argsStr: string) => {
+      const split = argsStr.split(' ').filter(Boolean)
+
+      let args: string[] = []
+      let currentArg = ''
+      let inString: string | null = null
+
+      for (let i = 0; i < split.length; i++) {
+        const token = split[i]
+
+        if (inString) {
+          currentArg += ' ' + token
+          if (token.endsWith(inString)) {
+            args.push(currentArg.substring(1, currentArg.length - 1))
+            currentArg = ''
+            inString = null
+          }
+        } else {
+          if (token.startsWith('"') || token.startsWith("'")) {
+            inString = token[0]
+            currentArg = token
+            if (token.endsWith(inString) && token.length > 1) {
+              args.push(currentArg.substring(1, currentArg.length - 1))
+              currentArg = ''
+              inString = null
+            }
+          } else {
+            args.push(token)
+          }
+        }
+      }
+
+      return args
+    }
     // Predefined functions
     const functions: Record<string, (args: string) => void> = {
       log: args => {
@@ -530,18 +585,17 @@ export class Parser {
         console.log(this.log(slice))
       },
       text: () => {
-        // console.log('text', this.progress.text)
-
-        this.parse(this.progress.text)
+        this.parse(`"${this.progress.text}"`)
       },
       keys: () => {
-        this.parse(this.progress.keys)
+        this.parse(`"${this.progress.keys}"`)
       },
       within: argsStr => {
         const args = splitArgs(argsStr)
         const point0 = parsePoint(args[0])
         const point1 = parsePoint(args[1])
-        const slice = Number(args[2] ?? '0')
+        const slice = Number(args[2] ?? this.lastWithin)
+
         const bounds = new AsemicGroup(
           ...(this.curves.slice(slice).flat() as AsemicPt[])
         ).boundingBox()
@@ -557,6 +611,26 @@ export class Parser {
               ),
               point0
             )
+        })
+        this.lastWithin = this.curves.length
+      },
+      osc: argsStr => {
+        const args = splitArgs(argsStr)
+        const [path, ...messages] = args
+        postMessage({
+          osc: {
+            path,
+            args: messages.map(x => {
+              if (x.startsWith("'")) {
+                return x.substring(1, x.length - 1)
+              } else if (x.includes(',')) {
+                return [...evalPoint(x)]
+              } else {
+                const evaluated = evalExpr(x)
+                return isNaN(evaluated) ? x : evaluated
+              }
+            })
+          }
         })
       },
       '3': argsStr => {
@@ -734,36 +808,6 @@ export class Parser {
           }
         }
       })
-    }
-
-    if (/^\s*\{\{(?:(?!\}\}).)*\}\}/.test(source)) {
-      const parseSetting = (token: string) => {
-        if (!token) return
-        if (token.startsWith('!')) {
-          this.settings[token.substring(1)] = false
-        } else if (token.includes(':')) {
-          const [key, value] = token.split(':')
-          if (key === 'h' && (value === 'window' || value === 'auto')) {
-            this.settings[key] = value
-          } else {
-            this.settings[key] = evalExpr(value)
-          }
-        } else {
-          this.settings[token] = true
-        }
-      }
-      const [preSettings, afterSource] = splitString(source, '}}')
-
-      if (!this.settings) {
-        this.settings = {}
-
-        for (let token of preSettings.trim().substring(2).split(/\s/g)) {
-          parseSetting(token.trim())
-        }
-
-        postMessage({ settings: this.settings })
-      }
-      source = afterSource
     }
 
     // Tokenize the source

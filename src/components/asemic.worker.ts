@@ -5,7 +5,9 @@ let parser: Parser = new Parser()
 self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.progress) {
     Object.assign(parser.progress, ev.data.progress)
-    console.log('progress', cloneDeep(parser.progress))
+  }
+  if (ev.data.settingsSource) {
+    parser.parseSettings(ev.data.settingsSource)
   }
   if (ev.data.source) {
     parser.reset()

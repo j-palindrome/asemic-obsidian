@@ -6,6 +6,11 @@ declare global {
     font?: AsemicFont
     source?: string
     progress?: Partial<Parser['progress']>
+    settingsSource?: string
+  }
+  interface DataBack {
+    osc?: { path: string; args: any[] }
+    [string: string]: any
   }
 }
 
