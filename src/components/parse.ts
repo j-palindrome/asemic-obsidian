@@ -23,7 +23,7 @@
 import { Group, Pt } from 'pts'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
-import { AsemicFont, defaultFont } from './defaultFont'
+import { AsemicFont, DefaultFont } from './defaultFont'
 import _, { cloneDeep } from 'lodash'
 import { createNoise2D } from 'simplex-noise'
 import { defaultSettings, splitString } from 'src/plugin/settings'
@@ -63,7 +63,8 @@ export class Parser {
     keys: '',
     text: ''
   }
-  font = defaultFont
+  fonts = { default: new DefaultFont() }
+  currentFont = 'default'
   lastPoint: AsemicPt = new AsemicPt(this, 0, 0)
   noiseTable: ((x: number, y: number) => number)[] = []
   noiseIndex = 0
@@ -73,7 +74,7 @@ export class Parser {
   reset() {
     this.lastWithin = 0
     this.noiseIndex = 0
-    this.font.reset()
+    this.fonts[this.currentFont].reset()
     this.curves = []
     this.progress.point = 0
     this.progress.curve = 0
@@ -87,6 +88,7 @@ export class Parser {
       thickness: 1
     }
     this.currentCurve = new AsemicGroup()
+    this.currentFont = 'default'
   }
 
   log(slice: number = 0) {
@@ -876,33 +878,44 @@ export class Parser {
           token = token.substring(2, token.length - 2).trim()
 
           if (token === '!') {
-            this.font.reset()
+            this.fonts[this.currentFont].reset()
           } else if (token.includes('\n')) {
             for (let letter of token.split('\n')) {
               if (!letter) continue
               const [key, value] = splitString(letter.trim(), ':')
-              if (value === '!') this.font.resetCharacter(key)
-              else this.font.characters[key] = value
+              if (value === '!')
+                this.fonts[this.currentFont].resetCharacter(key)
+              else this.fonts[this.currentFont].characters[key] = value
             }
           } else {
             for (let letter of token.split(';')) {
               if (!letter) continue
               const [key, value] = splitString(letter.trim(), ':')
-              this.font.characters[key] = value
+              this.fonts[this.currentFont].characters[key] = value
             }
           }
           continue
-        }
-
-        // Parse transformation
-        if (token.startsWith('{') && token.endsWith('}')) {
+        } else if (token.startsWith('{') && token.endsWith('}')) {
           parseTransform(token)
           continue
-        }
-
-        // curve additions
-        if (token.startsWith('`')) {
+        } else if (token.startsWith('`')) {
           eval(token.substring(1, token.length - 1))
+          continue
+        } else if (token.startsWith('"')) {
+          const formatSpace = (insert?: string) => {
+            if (insert) return ` ${insert} `
+            return ' '
+          }
+          const font = this.fonts[this.currentFont]
+          this.parse(
+            formatSpace(font.characters['\\^']) +
+              token
+                .split('')
+                .map(x => font.characters[x])
+                .filter(Boolean)
+                .join(formatSpace(font.characters['\\.'])) +
+              formatSpace(font.characters['\\$'])
+          )
           continue
         }
 
@@ -921,7 +934,6 @@ export class Parser {
           }
         }
 
-        // Parse points definition
         if (token.startsWith('[')) {
           const pointsStr = token.substring(1, token.length - 1)
           const pointsTokens = pointsStr.split(' ')
@@ -938,40 +950,22 @@ export class Parser {
           })
 
           continue
-        }
+        } else {
+          // Parse function call
+          const functionCall = token.trim().match(/^(\w+)\(((.|\n)*?)\)$/)
 
-        if (token.startsWith('"')) {
-          const formatSpace = (insert?: string) => {
-            if (insert) return ` ${insert} `
-            return ' '
+          if (functionCall) {
+            const functionName = functionCall[1]
+            const argsStr = functionCall[2]
+
+            // Parse function arguments
+            if (!functions[functionName])
+              throw new Error(
+                `unknown function: ${functionName} with args ${argsStr}`
+              )
+            functions[functionName](argsStr)
+            continue
           }
-
-          this.parse(
-            formatSpace(this.font.characters['\\^']) +
-              token
-                .split('')
-                .map(x => this.font.characters[x])
-                .filter(Boolean)
-                .join(formatSpace(this.font.characters['\\.'])) +
-              formatSpace(this.font.characters['\\$'])
-          )
-          continue
-        }
-
-        // Parse function call
-        const functionCall = token.trim().match(/^(\w+)\(((.|\n)*?)\)$/)
-
-        if (functionCall) {
-          const functionName = functionCall[1]
-          const argsStr = functionCall[2]
-
-          // Parse function arguments
-          if (!functions[functionName])
-            throw new Error(
-              `unknown function: ${functionName} with args ${argsStr}`
-            )
-          functions[functionName](argsStr)
-          continue
         }
       } catch (e) {
         throw new Error(`Parsing failed: ${tokens[i]}; ${e}`)

@@ -1,3 +1,6 @@
+import { escapeRegExp } from 'lodash'
+import { splitString } from 'src/plugin/settings'
+
 export class AsemicFont {
   protected defaultCharacters: Record<string, string> = {}
   characters: Record<string, string>
@@ -7,26 +10,35 @@ export class AsemicFont {
   resetCharacter(char: string) {
     this.characters[char] = this.defaultCharacters[char]
   }
-  constructor(characters: string) {
-    characters.split('\n').forEach(char => {
-      let [name, markup] = char.split(': ')
+  parseCharacters(characters: string) {
+    const charList = characters.split(/\n|;/g)
+
+    charList.forEach(char => {
+      let [name, markup] = splitString(char, ':')
       const escapedCharacters = {
         '\\n': '\n',
         '\\s': ' '
       }
       for (let char of Object.keys(escapedCharacters)) {
         if (name.includes(char)) {
-          name = name.replace(char, escapedCharacters[char])
+          name = name.replace(
+            new RegExp(escapeRegExp(char), 'g'),
+            escapedCharacters[char]
+          )
         }
       }
-      this.defaultCharacters[name] = markup
+      this.characters[name] = markup
     })
-    this.reset()
+  }
+  constructor(characters: string) {
+    this.parseCharacters(characters)
+    this.defaultCharacters = { ...this.characters }
   }
 }
 
-export const defaultFont = new AsemicFont(
-  `a: 4(1,-1 1,0 1) 3(1,-1 +0,1 .05) {+1,0}
+export class DefaultFont extends AsemicFont {
+  constructor() {
+    super(`a: 4(1,-1 1,0 1) 3(1,-1 +0,1 .05) {+1,0}
 b: [0,-2 0,0] 4(0,-1 0,0 -1) {+1,0}
 c: 5(1,-.8 @1/4,.6 1,.2) {+1,0}
 d: [1,-2 1,0] 4(1,-1 1,0 1) {+1,0}
@@ -81,5 +93,6 @@ Z: [0,-2 +1,0] [+0,0 0,0] [+0,0 1,0] {+1,0}
 \\s: {+1,0}
 \\n: {< +0,3 >}
 \\^: {>}
-\\.: {+.25,0}`
-)
+\\.: {+.25,0}`)
+  }
+}
