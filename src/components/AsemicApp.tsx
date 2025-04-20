@@ -20,7 +20,27 @@ export default function AsemicApp({
   const [settingsSource, ...scenes] = source.split('---').map(x => x.trim())
 
   const [index, setIndex] = useState(0)
-  const [scene, setScene] = useState(scenes[index])
+  const useScene = () => {
+    const [scene, setSceneState] = useState(scenes[index])
+    const setScene = async (source: string) => {
+      const links = source.match(/\[\[.*?\]\]/)
+      if (links) {
+        for (let link of links) {
+          const text = link.substring(2, link.length - 2)
+          if (obsidian) {
+            source = source.replace(link, await obsidian.getFileText(text))
+            console.log('fixed source:', source)
+          } else {
+            // TODO: require the text somehow
+          }
+        }
+      }
+      setSceneState(source)
+    }
+    return [scene, setScene] as const
+  }
+  const [scene, setScene] = useScene()
+
   useEffect(() => {
     setScene(scenes[index])
   }, [index])
