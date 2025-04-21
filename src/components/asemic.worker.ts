@@ -1,5 +1,5 @@
 import { cloneDeep } from 'lodash'
-import { Parser } from './parse'
+import { FlatTransform, Parser } from './parse'
 
 let parser: Parser = new Parser()
 self.onmessage = (ev: MessageEvent<Data>) => {
@@ -7,16 +7,24 @@ self.onmessage = (ev: MessageEvent<Data>) => {
     Object.assign(parser.progress, ev.data.progress)
   }
   if (ev.data.settingsSource) {
-    parser.parseSettings(ev.data.settingsSource)
+    self.postMessage(parser.parseSettings(ev.data.settingsSource))
   }
-
+  if (ev.data.preProcess) {
+    parser.preProcess = ev.data.preProcess
+  }
   if (ev.data.source) {
     parser.reset()
     parser.parse(ev.data.source)
-    const formattedCurves = parser.format()
+    parser.format()
+
     self.postMessage({
-      curves: formattedCurves,
-      lastTransform: JSON.stringify(parser.transform)
+      lastTransform: {
+        translation: parser.transform.translation,
+        rotation: parser.transform.rotation,
+        scale: parser.transform.scale,
+        thickness: parser.getDynamicValue(parser.transform.thickness)
+      } as FlatTransform,
+      ...parser.output
     })
   }
 }

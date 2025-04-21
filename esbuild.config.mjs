@@ -80,5 +80,5 @@ const context = await esbuild.context({
   plugins
 })
 
-await context.watch()
-// process.exit(0)
+await context.rebuild()
+process.exit(0)

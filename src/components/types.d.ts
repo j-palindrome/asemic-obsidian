@@ -1,18 +1,17 @@
 import { AsemicFont } from './defaultFont'
-import { Parser, Transform } from './parse'
+import { FlatTransform, Parser, Transform } from './parse'
 
 declare global {
   interface Data {
     source?: string
     progress?: Partial<Parser['progress']>
     settingsSource?: string
+    preProcess?: Parser['preProcess']
   }
-  interface DataBack {
-    osc?: { path: string; args: any[] }
-    lastTransform?: string
+  type DataBack = {
     response?: 'editable'
     [string: string]: any
-  }
+  } & Partial<Parser['output']>
 }
 
 declare module '*.worker' {

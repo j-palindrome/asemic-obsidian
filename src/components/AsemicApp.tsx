@@ -5,10 +5,11 @@ import { flatMap, max } from 'lodash'
 import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
-import { Parser, Transform } from './parse'
+import { FlatTransform, Parser, Transform } from './parse'
 import Renderer from './renderer'
-import { Client } from 'node-osc'
+import { ArgumentType, Client } from 'node-osc'
 import ObsidianAPI from 'src/plugin/ObsidianApi'
+import { defaultPreProcess } from './utils'
 
 export default function AsemicApp({
   source,
@@ -21,22 +22,7 @@ export default function AsemicApp({
 
   const [index, setIndex] = useState(0)
   const useScene = () => {
-    const [scene, setSceneState] = useState(scenes[index])
-    const setScene = async (source: string) => {
-      const links = source.match(/\[\[.*?\]\]/)
-      if (links) {
-        for (let link of links) {
-          const text = link.substring(2, link.length - 2)
-          if (obsidian) {
-            source = source.replace(link, await obsidian.getFileText(text))
-            console.log('fixed source:', source)
-          } else {
-            // TODO: require the text somehow
-          }
-        }
-      }
-      setSceneState(source)
-    }
+    const [scene, setScene] = useState(scenes[index])
     return [scene, setScene] as const
   }
   const [scene, setScene] = useScene()
@@ -55,7 +41,7 @@ export default function AsemicApp({
   }, [settings])
 
   const worker = useMemo(() => new AsemicWorker() as Worker, [])
-  const lastTransform = useRef<Transform>(null!)
+  const lastTransform = useRef<FlatTransform>(null!)
   const setup = () => {
     const animationFrame = useRef(0)
     const offscreenCanvas = useMemo(() => new OffscreenCanvas(1080, 1080), [])
@@ -137,7 +123,7 @@ export default function AsemicApp({
           }))
         }
         if (evt.data.lastTransform) {
-          lastTransform.current = JSON.parse(evt.data.lastTransform)
+          lastTransform.current = evt.data.lastTransform
         }
         if (evt.data.curves) {
           if (settingsRef.current.h === 'auto') {
@@ -166,9 +152,9 @@ export default function AsemicApp({
             }
           }
           renderer.render(evt.data.curves)
-          onscreen.current.transferFromImageBitmap(
-            offscreenCanvas.transferToImageBitmap()
-          )
+          const bitmap = offscreenCanvas.transferToImageBitmap()
+          onscreen.current.transferFromImageBitmap(bitmap)
+          bitmap.close()
 
           // thisTexture.needsUpdate = true
           // postProcessing.render()
@@ -181,25 +167,34 @@ export default function AsemicApp({
           })
         }
         if (evt.data.osc) {
-          // client.send(
-          //   {
-          //     address: evt.data.osc.path,
-          //     args: evt.data.osc.args
-          //   },
-          //   'localhost',
-          //   7000
-          // )
-          client.send(
-            evt.data.osc.path,
-            ...evt.data.osc.args.map(x => (x instanceof Pt ? [x.x, x.y] : x))
-          )
+          evt.data.osc.forEach(({ path, args }) => {
+            client.send({ address: path, args: args as ArgumentType[] })
+          })
         }
       }
       worker.onmessage = parseMessages
 
-      worker.postMessage({
-        source: scene
-      })
+      const restart = async () => {
+        const preProcess = defaultPreProcess()
+        const links = source.match(/\[\[.*?\]\]/)
+        if (links) {
+          for (let link of links) {
+            const text = link.substring(2, link.length - 2)
+            if (obsidian) {
+              preProcess.replacements[link] = (
+                await obsidian.getFileText(text)
+              ).trim()
+            } else {
+              // TODO: require the text somehow
+            }
+          }
+        }
+        worker.postMessage({
+          source: scene,
+          preProcess
+        })
+      }
+      restart()
     }, [scene, isSetup])
   }
   setup()
@@ -310,6 +305,16 @@ export default function AsemicApp({
         {!perform ? (
           <div className='fixed top-0 left-0 h-full w-[calc(100%-50px)]'>
             <div className='w-full h-fit flex justify-end'>
+              <button
+                onClick={() => {
+                  const currentScene = editable.current.value
+                  const newSource = source.replace(scene, currentScene)
+                  if (obsidian) {
+                    obsidian.overwriteCurrentFile(source, newSource)
+                  }
+                }}>
+                save
+              </button>
               <button
                 onClick={async () => {
                   try {

@@ -27,6 +27,7 @@ import { AsemicFont, DefaultFont } from './defaultFont'
 import _, { cloneDeep } from 'lodash'
 import { createNoise2D } from 'simplex-noise'
 import { defaultSettings, splitString } from 'src/plugin/settings'
+import { defaultPreProcess } from './utils'
 
 export type Transform = {
   scale: Pt
@@ -36,6 +37,18 @@ export type Transform = {
   add?: string
   rotate?: string
 }
+export type FlatTransform = {
+  scale: Pt
+  rotation: number
+  translation: Pt
+  thickness: number
+}
+const defaultOutput = () =>
+  ({ osc: [], curves: [] } as {
+    curves: any[]
+    osc: { path: string; args: (string | number | [number, number])[] }[]
+  })
+
 export class Parser {
   startTime = performance.now()
   curves: AsemicGroup[] = []
@@ -70,6 +83,12 @@ export class Parser {
   noiseIndex = 0
   noise = createNoise2D()
   lastWithin = 0
+  output = defaultOutput()
+  preProcess = defaultPreProcess()
+
+  getDynamicValue(value: number | (() => number)) {
+    return typeof value === 'function' ? value() : value
+  }
 
   reset() {
     this.lastWithin = 0
@@ -79,6 +98,7 @@ export class Parser {
     this.progress.point = 0
     this.progress.curve = 0
     this.progress.time = Math.floor(performance.now() - this.startTime) / 1000
+    this.output = defaultOutput()
     this.transform = {
       scale: new Pt(1, 1),
       rotation: 0,
@@ -208,7 +228,7 @@ export class Parser {
       newCurves.push(newCurve)
     }
 
-    return newCurves
+    this.output.curves = newCurves
   }
 
   parseSettings(source: string) {
@@ -233,10 +253,17 @@ export class Parser {
     for (let token of source.trim().split(/\s+/g)) {
       parseSetting(token.trim())
     }
-    postMessage({ settings: this.settings })
+    return { settings: this.settings }
   }
 
   parse(source: string) {
+    for (let replacement of Object.keys(this.preProcess.replacements)) {
+      source = source.replace(
+        replacement,
+        this.preProcess.replacements[replacement]
+      )
+    }
+
     const hasDebugged = this.debugged.includes(source)
     if (!hasDebugged) this.debugged.push(source)
     source = source + ' '
@@ -620,20 +647,18 @@ export class Parser {
       osc: argsStr => {
         const args = splitArgs(argsStr)
         const [path, ...messages] = args
-        postMessage({
-          osc: {
-            path,
-            args: messages.map(x => {
-              if (x.startsWith("'")) {
-                return x.substring(1, x.length - 1)
-              } else if (x.includes(',')) {
-                return [...evalPoint(x)]
-              } else {
-                const evaluated = evalExpr(x)
-                return isNaN(evaluated) ? x : evaluated
-              }
-            })
-          }
+        this.output.osc.push({
+          path,
+          args: messages.map(x => {
+            if (x.startsWith("'")) {
+              return x.substring(1, x.length - 1)
+            } else if (x.includes(',')) {
+              return [...evalPoint(x)] as [number, number]
+            } else {
+              const evaluated = evalExpr(x)
+              return isNaN(evaluated) ? x : evaluated
+            }
+          })
         })
       },
       '3': argsStr => {

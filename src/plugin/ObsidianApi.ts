@@ -5,6 +5,7 @@ import AsemicPlugin from '../main'
 export default class ObsidianAPI extends Component {
   app: App
   plugin: AsemicPlugin
+
   async getFileText(path: string) {
     const filePath = this.app.metadataCache.getFirstLinkpathDest(
       path,
@@ -20,6 +21,16 @@ export default class ObsidianAPI extends Component {
       return asemicMatch[1]
     }
   }
+
+  async overwriteCurrentFile(find: string, replace: string) {
+    this.app.vault.process(this.app.workspace.getActiveFile()!, text => {
+      console.log(text.replace(find, replace))
+
+      return text
+      // return text.replace(find, replace)
+    })
+  }
+
   constructor(plugin: AsemicPlugin) {
     super()
     this.plugin = plugin
