@@ -847,6 +847,7 @@ export class Parser {
     let quote = false
     let fontSettings = false
     let evaling = false
+    let functionCall = false
 
     const parsedString = source
       .replace(/^\/\/.*?$/gm, '')
@@ -866,9 +867,19 @@ export class Parser {
         current += '}}' // Include the closing brace
         i++
         continue
+      } else if (char === '(' && parsedString[i + 1] === '(') {
+        functionCall = true
+        current += '(('
+        i++
+        continue
+      } else if (char === ')' && parsedString[i + 1] === ')') {
+        functionCall = false
+        current += '))'
+        i++
+        continue
       }
 
-      if (!quote && !evaling && !fontSettings) {
+      if (!quote && !evaling && !fontSettings && !functionCall) {
         if (char === '[') inBrackets++
         else if (char === ']') inBrackets--
         else if (char === '(') inParentheses++
@@ -881,6 +892,7 @@ export class Parser {
         !quote &&
         !fontSettings &&
         !evaling &&
+        !functionCall &&
         (char === ' ' || char === '\n') &&
         inBrackets === 0 &&
         inParentheses === 0 &&
@@ -972,6 +984,18 @@ export class Parser {
             this.currentCurve.push(point)
           })
 
+          continue
+        } else if (token.startsWith('((')) {
+          const functionName = token.substring(2, token.indexOf(' '))
+          const text = token.substring(token.indexOf(' ') + 1, token.length - 2)
+          functions[functionName] = (args: string) => {
+            const parseArgs = splitArgs(args)
+            let newText = text
+            for (let i = 0; i < parseArgs.length; i++) {
+              newText = newText.replace(`${i}`, parseArgs[i])
+            }
+            this.parse(newText)
+          }
           continue
         } else {
           // Parse function call
