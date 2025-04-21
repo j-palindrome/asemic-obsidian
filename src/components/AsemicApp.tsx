@@ -272,8 +272,6 @@ export default function AsemicApp({
             (ev.clientY - rect.top) / rect.width
           )
           const listenForResponse = (ev: { data: DataBack }) => {
-            console.log('got response')
-
             mouse.rotate2D(lastTransform.current.rotation * Math.PI * 2 * -1)
             mouse.divide(lastTransform.current.scale)
             mouse.subtract(lastTransform.current.translation)
@@ -290,7 +288,6 @@ export default function AsemicApp({
           worker.postMessage({
             source: editable.current.value
           })
-          console.log('bound')
         }}>
         <canvas
           style={{

@@ -14,7 +14,9 @@ self.onmessage = (ev: MessageEvent<Data>) => {
   }
   if (ev.data.source) {
     parser.reset()
-    parser.parse(ev.data.source)
+    parser.source = ev.data.source
+    parser.doPreProcess()
+    parser.parse(parser.source)
     parser.format()
 
     self.postMessage({

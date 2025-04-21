@@ -85,6 +85,7 @@ export class Parser {
   lastWithin = 0
   output = defaultOutput()
   preProcess = defaultPreProcess()
+  source = ''
 
   getDynamicValue(value: number | (() => number)) {
     return typeof value === 'function' ? value() : value
@@ -256,14 +257,16 @@ export class Parser {
     return { settings: this.settings }
   }
 
-  parse(source: string) {
+  doPreProcess() {
     for (let replacement of Object.keys(this.preProcess.replacements)) {
-      source = source.replace(
+      this.source = this.source.replace(
         replacement,
         this.preProcess.replacements[replacement]
       )
     }
+  }
 
+  parse(source: string) {
     const hasDebugged = this.debugged.includes(source)
     if (!hasDebugged) this.debugged.push(source)
     source = source + ' '
@@ -271,6 +274,13 @@ export class Parser {
     const evalExpr = (expr: string, replace = true): number => {
       if (expr.length === 0) throw new Error('Empty expression')
       if (replace) {
+        if (expr.includes('`')) {
+          const matches = expr.matchAll(/`([^`]+)`/g)
+          for (let match of matches) {
+            const [original, expression] = match
+            expr = expr.replace(original, eval(expression))
+          }
+        }
         if (expr.includes('T')) {
           // vary according to t
           expr = expr.replace(/T/g, this.progress.time.toString())
@@ -934,7 +944,10 @@ export class Parser {
           parseTransform(token)
           continue
         } else if (token.startsWith('`')) {
-          eval(token.substring(1, token.length - 1))
+          const result = eval(token.substring(1, token.length - 1))
+          if (typeof result === 'string') {
+            this.parse(result)
+          }
           continue
         } else if (token.startsWith('"')) {
           const formatSpace = (insert?: string) => {
