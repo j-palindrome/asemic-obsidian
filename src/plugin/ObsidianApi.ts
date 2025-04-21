@@ -24,10 +24,7 @@ export default class ObsidianAPI extends Component {
 
   async overwriteCurrentFile(find: string, replace: string) {
     this.app.vault.process(this.app.workspace.getActiveFile()!, text => {
-      console.log(text.replace(find, replace))
-
-      return text
-      // return text.replace(find, replace)
+      return text.replace(find, replace)
     })
   }
 

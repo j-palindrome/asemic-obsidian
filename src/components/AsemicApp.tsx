@@ -308,7 +308,9 @@ export default function AsemicApp({
               <button
                 onClick={() => {
                   const currentScene = editable.current.value
-                  const newSource = source.replace(scene, currentScene)
+                  setScene(editable.current.value)
+                  const newSource = source.replace(scenes[index], currentScene)
+
                   if (obsidian) {
                     obsidian.overwriteCurrentFile(source, newSource)
                   }
