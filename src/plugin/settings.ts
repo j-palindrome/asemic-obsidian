@@ -1,10 +1,11 @@
 import { Parser } from 'src/components/parse'
 
-export const defaultSettings: Parser['settings'] = {
-  animating: true,
-  debug: true,
-  h: 'auto',
-  perform: false
+export const defaultSettings = {
+  animating: true as boolean,
+  debug: true as boolean,
+  h: 'auto' as number | 'window' | 'auto',
+  perform: false as boolean,
+  scene: 0 as number
 }
 
 export const splitString = (string: string, at: string) => {

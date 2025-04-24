@@ -24,10 +24,10 @@ import { Group, Pt } from 'pts'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
 import { AsemicFont, DefaultFont } from './defaultFont'
-import _, { cloneDeep } from 'lodash'
+import _ from 'lodash'
 import { createNoise2D } from 'simplex-noise'
 import { defaultSettings, splitString } from 'src/plugin/settings'
-import { defaultPreProcess } from './utils'
+import { defaultPreProcess, splitArgs } from './utils'
 
 export type Transform = {
   scale: Pt
@@ -52,12 +52,7 @@ const defaultOutput = () =>
 export class Parser {
   startTime = performance.now()
   curves: AsemicGroup[] = []
-  settings: {
-    h: number | 'window' | 'auto'
-    debug: boolean
-    animating: boolean
-    perform: boolean
-  } = defaultSettings
+  settings = defaultSettings
   debugged: string[] = []
   currentCurve: AsemicGroup = new AsemicGroup()
   transform: Transform = {
@@ -86,6 +81,162 @@ export class Parser {
   output = defaultOutput()
   preProcess = defaultPreProcess()
   source = ''
+  protected functions: Record<string, (args: string) => void> = {
+    log: args => {
+      const slice = Number(args[0] || '0')
+      console.log(this.log(slice))
+    },
+    text: () => {
+      this.parse(`"${this.progress.text}"`)
+    },
+    keys: () => {
+      this.parse(`"${this.progress.keys}"`)
+    },
+    within: argsStr => {
+      const args = splitArgs(argsStr)
+      const point0 = this.parsePoint(args[0])
+      const point1 = this.parsePoint(args[1])
+      const slice = Number(args[2] ?? this.lastWithin)
+
+      const bounds = new AsemicGroup(
+        ...(this.curves.slice(slice).flat() as AsemicPt[])
+      ).boundingBox()
+
+      const sub = bounds[0].$subtract(point0)
+      //   .$multiply(
+      //   point1.$subtract(point0).$divide(
+      //     bounds[1].$subtract(bounds[0])
+      //   )
+      //   )
+
+      // Calculate scaling factor based on aspect ratio
+      const scaleX = (point1.x - point0.x) / (bounds[1].x - bounds[0].x)
+      const scaleY = (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
+      const scale = Math.min(scaleX, scaleY)
+      // Calculate center offset to properly position the curves
+      const sourceBoundsCenter = bounds[0].$add(bounds[1]).divide(2)
+      const targetBoundsCenter = point0.$add(point1).divide(2)
+      const centerDifference = targetBoundsCenter.$subtract(
+        sourceBoundsCenter.scale(scale, point0)
+      )
+      this.curves.slice(slice).forEach(curve => {
+        curve.subtract(bounds[0]).scale(scale, [0, 0]).add(point0)
+        // .add(centerDifference)
+      })
+      this.lastWithin = this.curves.length
+    },
+    osc: argsStr => {
+      const args = splitArgs(argsStr)
+      const [path, ...messages] = args
+      this.output.osc.push({
+        path,
+        args: messages.map(x => {
+          if (x.startsWith("'")) {
+            return x.substring(1, x.length - 1)
+          } else if (x.includes(',')) {
+            return [...this.evalPoint(x)] as [number, number]
+          } else {
+            const evaluated = this.evalExpr(x)
+            return isNaN(evaluated) ? x : evaluated
+          }
+        })
+      })
+    },
+    '3': argsStr => {
+      const args = splitArgs(argsStr)
+      const [start, end, h] = this.parseArgs(args)
+      this.mapCurve(
+        Group.fromArray([[0.5, h * 2]]),
+        Group.fromArray([[0, 0]]),
+        start,
+        end
+      )
+    },
+    '4': argsStr => {
+      const args = splitArgs(argsStr)
+      const [start, end, h, w] = this.parseArgs(args)
+      this.mapCurve(
+        Group.fromArray([
+          [0, h],
+          [1, h]
+        ]),
+        Group.fromArray([
+          [-w, 0],
+          [w, 0]
+        ]),
+        start,
+        end
+      )
+    },
+    '5': argsStr => {
+      const args = splitArgs(argsStr)
+      const [start, end, h, w] = this.parseArgs(args)
+      this.mapCurve(
+        Group.fromArray([
+          [0, h * 0.5],
+          [0.5, h * 1.1],
+          [1, h * 0.5]
+        ]),
+        Group.fromArray([
+          [-w * 2, 0],
+          [0, 0],
+          [w * 2, 0]
+        ]),
+        start,
+        end
+      )
+    },
+    '6': argsStr => {
+      const args = splitArgs(argsStr)
+      const [start, end, h, w] = this.parseArgs(args)
+      this.mapCurve(
+        Group.fromArray([
+          [0, 0],
+          [0, h],
+          [1, h],
+          [1, 0]
+        ]),
+        Group.fromArray([
+          [-w, 0],
+          [-w, 0],
+          [w, 0],
+          [w, 0]
+        ]),
+        start,
+        end
+      )
+    },
+    circle: argsStr => {
+      const args = splitArgs(argsStr)
+      const center = this.parsePoint(args[0])
+      const [w, h] = this.evalPoint(args[1])
+      const points = Group.fromArray([
+        [w, 0],
+        [w, h],
+        [-w, h],
+        [-w, -h],
+        [w, -h],
+        [w, 0]
+      ])
+        .scale(this.transform.scale, [0, 0])
+        .rotate2D(this.transform.rotation * Math.PI * 2, [0, 0])
+        .add(center)
+      this.currentCurve.push(
+        ...points.map((x, i) => {
+          this.progress.point = i / (points.length - 1)
+          return new AsemicPt(this, x)
+        })
+      )
+    },
+    repeat: argsStr => {
+      const [count, content] = splitString(argsStr, ' ')
+      const countNum = this.evalExpr(count)
+
+      for (let i = 0; i < countNum; i++) {
+        this.parse(content.trim().replace(/I/g, i.toString()))
+      }
+    }
+  }
 
   getDynamicValue(value: number | (() => number)) {
     return typeof value === 'function' ? value() : value
@@ -112,7 +263,7 @@ export class Parser {
     this.currentFont = 'default'
   }
 
-  log(slice: number = 0) {
+  protected log(slice: number = 0) {
     const toFixed = (x: number) => {
       const str = x.toFixed(2)
       if (str.endsWith('00')) {
@@ -172,8 +323,9 @@ export class Parser {
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
           .scale(curve.at(0).thickness / 2 / w)
-        p0.add(n0)
+        // p0.add(n0)
         push([p0.x, p0.y])
+        // push([...curve.at(0).clone()])
 
         const drawCurve = (curve: AsemicGroup, i: number) => {
           const p2 =
@@ -189,8 +341,9 @@ export class Parser {
             .rotate2D(0.25 * Math.PI * 2)
             .unit()
             .scale(
-              (curve.at(i + 1).thickness + curve.at(i + 2).thickness) /
-                2 /
+              (i === curve.length - 3
+                ? curve.at(i + 2).thickness
+                : (curve.at(i + 1).thickness + curve.at(i + 2).thickness) / 2) /
                 2 /
                 w
             )
@@ -251,10 +404,13 @@ export class Parser {
 
     this.settings = {} as Parser['settings']
 
-    for (let token of source.trim().split(/\s+/g)) {
+    const [settings, ...rest] = source.split('\n')
+
+    for (let token of settings.trim().split(/\s+/g)) {
       parseSetting(token.trim())
     }
-    return { settings: this.settings }
+
+    this.parse(rest.join('\n'))
   }
 
   doPreProcess() {
@@ -266,587 +422,404 @@ export class Parser {
     }
   }
 
-  parse(source: string) {
-    const hasDebugged = this.debugged.includes(source)
-    if (!hasDebugged) this.debugged.push(source)
-    source = source + ' '
+  protected mapCurve(
+    multiplyPoints: Group,
+    addPoints: Group,
+    start: AsemicPt,
+    end: AsemicPt
+  ) {
+    let usedEnd =
+      end[0] === start[0] && end[1] === start[1] ? start.$add(1, 0) : end
 
-    const evalExpr = (expr: string, replace = true): number => {
-      if (expr.length === 0) throw new Error('Empty expression')
-      if (replace) {
-        if (expr.includes('`')) {
-          const matches = expr.matchAll(/`([^`]+)`/g)
-          for (let match of matches) {
-            const [original, expression] = match
-            expr = expr.replace(original, eval(expression))
-          }
+    const angle = usedEnd.$subtract(start).angle()
+    const distance = usedEnd.$subtract(start).magnitude()
+
+    const mappedCurve = [
+      start,
+      ...multiplyPoints.map((x, i) => {
+        x.scale([distance, this.transform.scale.y], [0, 0])
+          .add(addPoints[i].scale([this.transform.scale.x, 1], [0, 0]))
+          .rotate2D(angle, [0, 0])
+          .add(start)
+        this.progress.point = (i + 1) / (multiplyPoints.length + 2 - 1)
+        return new AsemicPt(this, x)
+      }),
+      end
+    ]
+    this.currentCurve.push(...mappedCurve)
+  }
+
+  protected parseArgs(args: string[]) {
+    this.progress.point = 0
+    const startPoint = this.parsePoint(args[0])
+    this.progress.point = 1
+    const endPoint = this.parsePoint(args[1])
+
+    let h = 0,
+      w = 0
+    if (args.length >= 3) {
+      const hwParts = args[2].split(',')
+      h = this.evalExpr(hwParts[0])!
+      w = hwParts.length > 1 ? this.evalExpr(hwParts[1])! : 0
+    }
+
+    return [startPoint, endPoint, h, w] as [AsemicPt, AsemicPt, number, number]
+  }
+
+  protected evalExpr(expr: string, replace = true): number {
+    if (expr.length === 0) throw new Error('Empty expression')
+    if (replace) {
+      if (expr.includes('`')) {
+        const matches = expr.matchAll(/`([^`]+)`/g)
+        for (let match of matches) {
+          const [original, expression] = match
+          expr = expr.replace(original, eval(expression))
         }
-        if (expr.includes('T')) {
-          // vary according to t
-          expr = expr.replace(/T/g, this.progress.time.toString())
-        }
-        if (expr.includes('H')) {
-          const height = this.progress.height / this.progress.width
-          if (expr.length === 1) {
-            return height
-          } else expr = expr.replace(/H/g, `*${height.toFixed(3)}`)
-        }
-        if (expr.includes('P')) {
-          expr = expr.replace(/P/g, this.progress.point.toString())
-        }
-        if (expr.includes('C')) {
-          expr = expr.replace(/C/g, this.progress.curve.toString())
-        }
-        if (expr.includes('px')) {
-          expr = expr.replace(/px/g, `*${(1 / this.progress.width).toString()}`)
+      }
+      if (expr.includes('T')) {
+        // vary according to t
+        expr = expr.replace(/T/g, this.progress.time.toFixed(3))
+      }
+      if (expr.includes('H')) {
+        const height = this.progress.height / this.progress.width
+        if (expr.length === 1) {
+          return height
+        } else expr = expr.replace(/H/g, `*${height.toFixed(3)}`)
+      }
+      if (expr.includes('P')) {
+        expr = expr.replace(/P/g, this.progress.point.toFixed(3))
+      }
+      if (expr.includes('C')) {
+        expr = expr.replace(/C/g, this.progress.curve.toFixed(3))
+      }
+      if (expr.includes('px')) {
+        expr = expr.replace(/px/g, `*${(1 / this.progress.width).toFixed(3)}`)
+      }
+    }
+
+    const functions: Record<string, (x: string) => number> = {
+      sin: x => Math.sin(this.evalExpr(x, false) * Math.PI * 2) * 0.5 + 0.5
+    }
+
+    if (expr.includes('(')) {
+      let bracket = 1
+      const start = expr.indexOf('(')
+      let end = start + 1
+      for (; end < expr.length; end++) {
+        if (expr[end] === '(') bracket++
+        else if (expr[end] === ')') {
+          bracket--
+          if (bracket === 0) break
         }
       }
 
-      const functions: Record<string, (x: string) => number> = {
-        sin: x => Math.sin(evalExpr(x, false) * Math.PI * 2) * 0.5 + 0.5
-      }
-
-      if (expr.includes('(')) {
-        let bracket = 1
-        const start = expr.indexOf('(')
-        let end = start + 1
-        for (; end < expr.length; end++) {
-          if (expr[end] === '(') bracket++
-          else if (expr[end] === ')') {
-            bracket--
-            if (bracket === 0) break
-          }
+      let stringStart = expr.substring(0, start)
+      for (let key of Object.keys(functions)) {
+        if (stringStart.endsWith(key)) {
+          return this.evalExpr(
+            stringStart.slice(0, stringStart.length - key.length) +
+              functions[key](expr.substring(start + 1, end)).toString() +
+              expr.substring(end + 1)
+          )
         }
-
-        let stringStart = expr.substring(0, start)
-        for (let key of Object.keys(functions)) {
-          if (stringStart.endsWith(key)) {
-            return evalExpr(
-              stringStart.slice(0, stringStart.length - key.length) +
-                functions[key](expr.substring(start + 1, end)).toString() +
-                expr.substring(end + 1)
-            )
-          }
-        }
-
-        return evalExpr(
-          stringStart +
-            evalExpr(expr.substring(start + 1, end), false) +
-            expr.substring(end + 1)
-        )
       }
 
-      if (expr.includes('>')) {
-        // 1.1<R>2.4
-        const [firstPoint, fade, ...nextPoints] = expr
-          .split(/[<>]/g)
-          .map(x => evalExpr(x, false))
-        const points = [firstPoint, ...nextPoints]
-        const index = (points.length - 1) * fade! * 0.999
+      return this.evalExpr(
+        stringStart +
+          this.evalExpr(expr.substring(start + 1, end), false) +
+          expr.substring(end + 1)
+      )
+    }
 
-        return lerp(
-          points[Math.floor(index)]!,
-          points[Math.floor(index) + 1]!,
-          index % 1
-        )
-      }
+    if (expr.includes('<')) {
+      // 1.1<R>2.4
+      const [firstPoint, fade, ...nextPoints] = expr.split(/[<>]/g).map(x => {
+        return this.evalExpr(x, false)
+      })
+      const points = [firstPoint, ...nextPoints]
+      let index = (points.length - 1) * fade
+      if (index === points.length - 1) index -= 0.0001
 
+      return lerp(
+        points[Math.floor(index)]!,
+        points[Math.floor(index) + 1]!,
+        index % 1
+      )
+    }
+
+    if (expr.includes('_')) {
+      let [round, after] = splitString(expr, '_')
+      if (!after) after = '1'
+      const afterNum = this.evalExpr(after)
+      return Math.floor(this.evalExpr(round) / afterNum) * afterNum
+    }
+
+    if (expr.includes('+')) {
+      const [num, denom] = splitString(expr, '+').map(
+        x => this.evalExpr(x, false)!
+      )
+      return num + denom
+    }
+
+    if (expr.includes('-') && !expr.startsWith('-')) {
+      const [num, denom] = splitString(expr, '-').map(
+        x => this.evalExpr(x, false)!
+      )
+      return num - denom
+    }
+
+    if (expr.includes('*')) {
+      const [num, denom] = splitString(expr, '*').map(
+        x => this.evalExpr(x, false)!
+      )
+      return num * denom
+    }
+
+    if (expr.includes('/')) {
+      const [num, denom] = splitString(expr, '/').map(
+        x => this.evalExpr(x, false)!
+      )
+      return num / denom
+    }
+
+    if (expr.includes('%')) {
+      const [num, denom] = splitString(expr, '%').map(
+        x => this.evalExpr(x, false)!
+      )
+      return num % denom
+    }
+
+    if (expr.startsWith('#')) {
       const hash = (n: number): number => {
         // Convert to string, multiply by a prime number, and take the fractional part
         const val = Math.sin(n) * 43758.5453123
         return Math.abs(val - Math.floor(val)) // Return the fractional part (0-1)
       }
-
-      if (expr.startsWith('#')) {
-        if (expr.length === 1) {
-          return Math.random()
-        }
-        return hash(evalExpr(expr.substring(1)))
+      if (expr.length === 1) {
+        return Math.random()
       }
-
-      if (expr.startsWith('~')) {
-        let sampleIndex = this.noiseIndex
-        while (sampleIndex > this.noiseTable.length - 1) {
-          this.noiseTable.push(createNoise2D())
-        }
-
-        const noise =
-          this.noiseTable[this.noiseIndex](
-            (expr.length === 1 ? 1 : evalExpr(expr.substring(1))) *
-              this.progress.time,
-            0
-          ) *
-            0.5 +
-          0.5
-        this.noiseIndex++
-
-        return noise
-      }
-
-      if (expr.includes('_')) {
-        let [round, after] = splitString(expr, '_')
-        if (!after) after = '1'
-        const afterNum = evalExpr(after)
-        return Math.floor(evalExpr(round) / afterNum) * afterNum
-      }
-
-      if (expr.includes('+')) {
-        const [num, denom] = splitString(expr, '+').map(
-          x => evalExpr(x, false)!
-        )
-        return num + denom
-      }
-
-      if (expr.includes('-') && !expr.startsWith('-')) {
-        const [num, denom] = splitString(expr, '-').map(
-          x => evalExpr(x, false)!
-        )
-        return num - denom
-      }
-
-      if (expr.includes('*')) {
-        const [num, denom] = splitString(expr, '*').map(
-          x => evalExpr(x, false)!
-        )
-        return num * denom
-      }
-
-      if (expr.includes('/')) {
-        const [num, denom] = splitString(expr, '/').map(
-          x => evalExpr(x, false)!
-        )
-        return num / denom
-      }
-
-      if (expr.includes('%')) {
-        const [num, denom] = splitString(expr, '%').map(
-          x => evalExpr(x, false)!
-        )
-        return num % denom
-      }
-
-      return parseFloat(expr)
+      return hash(this.evalExpr(expr.substring(1)))
     }
 
-    const evalPoint = (
-      point: string,
-      defaultValue: boolean | number = true
-    ): Pt => {
-      const parts = point.split(',')
-      if (parts.length === 1) {
-        if (defaultValue === false)
-          throw new Error(`Incomplete point: ${point}`)
-        return new Pt(
-          evalExpr(parts[0])!,
-          defaultValue === true ? evalExpr(parts[0])! : defaultValue
-        )
+    if (expr.startsWith('~')) {
+      let sampleIndex = this.noiseIndex
+      while (sampleIndex > this.noiseTable.length - 1) {
+        this.noiseTable.push(createNoise2D())
       }
-      try {
-        return new Pt(evalExpr(parts[0])!, evalExpr(parts[1])!)
-      } catch (e) {
-        throw new Error(`Failed to parse point ${point}; ${e}`)
-      }
+
+      const noise =
+        this.noiseTable[this.noiseIndex](
+          (expr.length === 1 ? 1 : this.evalExpr(expr.substring(1))) *
+            this.progress.time,
+          0
+        ) *
+          0.5 +
+        0.5
+      this.noiseIndex++
+
+      return noise
     }
 
-    // Parse point from string notation
-    const parsePoint = (notation: string, save = true) => {
-      let prevCurve = this.curves[this.curves.length - 1]
-      const applyTransform = (point: AsemicPt, relative: boolean): AsemicPt => {
-        point
-          .scale(this.transform.scale, !relative ? [0, 0] : this.lastPoint)
-          .rotate2D(
-            this.transform.rotation * Math.PI * 2,
-            !relative ? [0, 0] : this.lastPoint
-          )
+    return parseFloat(expr)
+  }
 
-        if (this.transform.rotate !== undefined) {
-          point.rotate2D(
-            evalExpr(this.transform.rotate),
-            !relative ? [0, 0] : this.lastPoint
-          )
-        }
-        if (!relative) point.add(this.transform.translation)
-        if (this.transform.add !== undefined) {
-          point.add(
-            evalPoint(this.transform.add)
-              .scale(this.transform.scale, [0, 0])
-              .rotate2D(this.transform.rotation * Math.PI * 2, [0, 0])
-          )
-        }
+  protected evalPoint(
+    point: string,
+    defaultValue: boolean | number = true
+  ): Pt {
+    const parts = point.split(',')
+    if (parts.length === 1) {
+      if (defaultValue === false) throw new Error(`Incomplete point: ${point}`)
+      return new Pt(
+        this.evalExpr(parts[0])!,
+        defaultValue === true ? this.evalExpr(parts[0])! : defaultValue
+      )
+    }
+    try {
+      return new Pt(this.evalExpr(parts[0])!, this.evalExpr(parts[1])!)
+    } catch (e) {
+      throw new Error(`Failed to parse point ${point}; ${e}`)
+    }
+  }
 
-        return point
-      }
+  // Parse point from string notation
+  protected parsePoint(notation: string, save = true) {
+    let prevCurve = this.curves[this.curves.length - 1]
+    const applyTransform = (point: AsemicPt, relative: boolean): AsemicPt => {
+      point
+        .scale(this.transform.scale, !relative ? [0, 0] : this.lastPoint)
+        .rotate2D(
+          this.transform.rotation * Math.PI * 2,
+          !relative ? [0, 0] : this.lastPoint
+        )
 
-      notation = notation.trim()
-
-      let point: AsemicPt
-      // Intersection point syntax: <p
-      if (notation.startsWith('<')) {
-        let count = 0
-        while (notation.startsWith('<')) {
-          notation = notation.substring(1)
-          count++
-        }
-        prevCurve = this.curves[this.curves.length - count]
-        if (!prevCurve || prevCurve.length < 2) {
-          throw new Error('Intersection requires a previous curve')
-        }
-
-        let p = evalExpr(notation)
-        const idx = Math.floor(p * (prevCurve.length - 1))
-        const frac = p * (prevCurve.length - 1) - idx
-
-        if (idx >= prevCurve.length - 1) {
-          return prevCurve[prevCurve.length - 1]
-        }
-
-        const p1 = prevCurve[idx]
-        const p2 = prevCurve[idx + 1]
-
-        point = new AsemicPt(
-          this,
-          p1[0] + (p2[0] - p1[0]) * frac,
-          p1[1] + (p2[1] - p1[1]) * frac
+      if (this.transform.rotate !== undefined) {
+        point.rotate2D(
+          this.evalExpr(this.transform.rotate),
+          !relative ? [0, 0] : this.lastPoint
         )
       }
-
-      // Polar coordinates: @t,r
-      else if (notation.startsWith('@')) {
-        const [theta, radius] = evalPoint(notation.substring(1), false)
-        const thetaRad = theta * Math.PI * 2 // Convert 0-1 to radians
-
-        point = applyTransform(
-          this.lastPoint.$add(radius, 0).rotate2D(thetaRad, this.lastPoint),
-          true
+      if (!relative) point.add(this.transform.translation)
+      if (this.transform.add !== undefined) {
+        point.add(
+          this.evalPoint(this.transform.add)
+            .scale(this.transform.scale, [0, 0])
+            .rotate2D(this.transform.rotation * Math.PI * 2, [0, 0])
         )
       }
-
-      // Relative coordinates: +x,y
-      else if (notation.startsWith('+')) {
-        point = applyTransform(
-          this.lastPoint.$add(evalPoint(notation.substring(1))),
-          true
-        )
-      } else {
-        // Absolute coordinates: x,y
-        point = applyTransform(new AsemicPt(this, evalPoint(notation)), false)
-      }
-      if (save) this.lastPoint = point
       return point
     }
 
-    const mapCurve = (
-      multiplyPoints: Group,
-      addPoints: Group,
-      start: AsemicPt,
-      end: AsemicPt
-    ) => {
-      let usedEnd =
-        end[0] === start[0] && end[1] === start[1] ? start.$add(1, 0) : end
+    notation = notation.trim()
 
-      const angle = usedEnd.$subtract(start).angle()
-      const distance = usedEnd.$subtract(start).magnitude()
-
-      const mappedCurve = [
-        start,
-        ...multiplyPoints.map((x, i) => {
-          x.scale([distance, this.transform.scale.y], [0, 0])
-            .add(addPoints[i].scale([this.transform.scale.x, 1], [0, 0]))
-            .rotate2D(angle, [0, 0])
-            .add(start)
-          this.progress.point = (i + 1) / (multiplyPoints.length + 2 - 1)
-          return new AsemicPt(this, x)
-        }),
-        end
-      ]
-      this.currentCurve.push(...mappedCurve)
-    }
-
-    const parseArgs = (args: string[]) => {
-      this.progress.point = 0
-      const startPoint = parsePoint(args[0])
-      this.progress.point = 1
-      const endPoint = parsePoint(args[1])
-
-      let h = 0,
-        w = 0
-      if (args.length >= 3) {
-        const hwParts = args[2].split(',')
-        h = evalExpr(hwParts[0])!
-        w = hwParts.length > 1 ? evalExpr(hwParts[1])! : 0
+    let point: AsemicPt
+    // Intersection point syntax: <p
+    if (notation.startsWith('<')) {
+      let count = 0
+      while (notation.startsWith('<')) {
+        notation = notation.substring(1)
+        count++
+      }
+      prevCurve = this.curves[this.curves.length - count]
+      if (!prevCurve || prevCurve.length < 2) {
+        throw new Error('Intersection requires a previous curve')
       }
 
-      return [startPoint, endPoint, h, w] as [
-        AsemicPt,
-        AsemicPt,
-        number,
-        number
-      ]
+      let p = this.evalExpr(notation)
+      const idx = Math.floor(p * (prevCurve.length - 1))
+      const frac = p * (prevCurve.length - 1) - idx
+
+      if (idx >= prevCurve.length - 1) {
+        return prevCurve[prevCurve.length - 1]
+      }
+
+      const p1 = prevCurve[idx]
+      const p2 = prevCurve[idx + 1]
+
+      point = new AsemicPt(
+        this,
+        p1[0] + (p2[0] - p1[0]) * frac,
+        p1[1] + (p2[1] - p1[1]) * frac
+      )
     }
 
-    const splitArgs = (argsStr: string) => {
-      const split = argsStr.split(' ').filter(Boolean)
+    // Polar coordinates: @t,r
+    else if (notation.startsWith('@')) {
+      const [theta, radius] = this.evalPoint(notation.substring(1), false)
+      const thetaRad = theta * Math.PI * 2 // Convert 0-1 to radians
 
-      let args: string[] = []
-      let currentArg = ''
-      let inString: string | null = null
+      point = applyTransform(
+        this.lastPoint.$add(radius, 0).rotate2D(thetaRad, this.lastPoint),
+        true
+      )
+    }
 
-      for (let i = 0; i < split.length; i++) {
-        const token = split[i]
+    // Relative coordinates: +x,y
+    else if (notation.startsWith('+')) {
+      point = applyTransform(
+        this.lastPoint.$add(this.evalPoint(notation.substring(1))),
+        true
+      )
+    } else {
+      // Absolute coordinates: x,y
+      point = applyTransform(
+        new AsemicPt(this, this.evalPoint(notation)),
+        false
+      )
+    }
+    if (save) this.lastPoint = point
+    return point
+  }
 
-        if (inString) {
-          currentArg += ' ' + token
-          if (token.endsWith(inString)) {
-            args.push(currentArg.substring(1, currentArg.length - 1))
-            currentArg = ''
-            inString = null
-          }
-        } else {
-          if (token.startsWith('"') || token.startsWith("'")) {
-            inString = token[0]
-            currentArg = token
-            if (token.endsWith(inString) && token.length > 1) {
-              args.push(currentArg.substring(1, currentArg.length - 1))
-              currentArg = ''
-              inString = null
-            }
+  protected parseTransform(token: string) {
+    // { ...transforms }
+    const transformStr = token.substring(1, token.length - 1)
+    const transforms = transformStr.split(' ')
+
+    transforms.forEach(transform => {
+      if (transform === '<') {
+        Object.assign(this.transform, this.transforms.pop()!)
+      } else if (transform === '>') {
+        const newTransform = {} as Transform
+        for (let key of Object.keys(this.transform)) {
+          if (this.transform[key] instanceof Pt) {
+            newTransform[key] = this.transform[key].clone()
           } else {
-            args.push(token)
+            newTransform[key] = this.transform[key]
           }
         }
-      }
-
-      return args
-    }
-    // Predefined functions
-    const functions: Record<string, (args: string) => void> = {
-      log: args => {
-        const slice = Number(args[0] || '0')
-        console.log(this.log(slice))
-      },
-      text: () => {
-        this.parse(`"${this.progress.text}"`)
-      },
-      keys: () => {
-        this.parse(`"${this.progress.keys}"`)
-      },
-      within: argsStr => {
-        const args = splitArgs(argsStr)
-        const point0 = parsePoint(args[0])
-        const point1 = parsePoint(args[1])
-        const slice = Number(args[2] ?? this.lastWithin)
-
-        const bounds = new AsemicGroup(
-          ...(this.curves.slice(slice).flat() as AsemicPt[])
-        ).boundingBox()
-
-        const sub = bounds[0].$subtract(point0)
-        this.curves.slice(slice).forEach(curve => {
-          curve
-            .subtract(sub)
-            .scale(
-              Math.min(
-                (point1.x - point0.x) / (bounds[1].x - bounds[0].x),
-                (point1.y - point0.y) / (bounds[1].y - bounds[0].y)
-              ),
-              point0
-            )
-        })
-        this.lastWithin = this.curves.length
-      },
-      osc: argsStr => {
-        const args = splitArgs(argsStr)
-        const [path, ...messages] = args
-        this.output.osc.push({
-          path,
-          args: messages.map(x => {
-            if (x.startsWith("'")) {
-              return x.substring(1, x.length - 1)
-            } else if (x.includes(',')) {
-              return [...evalPoint(x)] as [number, number]
-            } else {
-              const evaluated = evalExpr(x)
-              return isNaN(evaluated) ? x : evaluated
-            }
-          })
-        })
-      },
-      '3': argsStr => {
-        const args = splitArgs(argsStr)
-        const [start, end, h] = parseArgs(args)
-        mapCurve(
-          Group.fromArray([[0.5, h * 2]]),
-          Group.fromArray([[0, 0]]),
-          start,
-          end
+        this.transforms.push(newTransform)
+      } else if (transform === '!') {
+        // Reset all transformations
+        this.transform.scale.set([1, 1])
+        this.transform.rotation = 0
+        this.transform.translation.set([0, 0])
+        delete this.transform.add
+        delete this.transform.rotate
+      } else if (transform.startsWith('*!')) {
+        // Reset scale
+        this.transform.scale.set([1, 1])
+      } else if (transform.startsWith('@!')) {
+        // Reset rotation
+        this.transform.rotation = 0
+      } else if (transform.startsWith('+!')) {
+        // Reset translation
+        this.transform.translation.set([0, 0])
+      } else if (transform.startsWith('+=>')) {
+        this.transform.add = transform.substring(3)
+      } else if (transform.startsWith('@=>')) {
+        this.transform.rotate = transform.substring(3)
+      } else if (transform.startsWith('*')) {
+        // Scale
+        this.transform.scale.multiply(this.evalPoint(transform.substring(1)))
+      } else if (transform.startsWith('@')) {
+        // Rotation
+        this.transform.rotation += this.evalExpr(transform.substring(1))!
+      } else if (transform.startsWith('+')) {
+        // Translation
+        this.transform.translation.add(
+          this.evalPoint(transform.substring(1))
+            .scale(this.transform.scale)
+            .rotate2D(this.transform.rotation * Math.PI * 2)
         )
-      },
-      '4': argsStr => {
-        const args = splitArgs(argsStr)
-        const [start, end, h, w] = parseArgs(args)
-        mapCurve(
-          Group.fromArray([
-            [0, h],
-            [1, h]
-          ]),
-          Group.fromArray([
-            [-w, 0],
-            [w, 0]
-          ]),
-          start,
-          end
-        )
-      },
-      '5': argsStr => {
-        const args = splitArgs(argsStr)
-        const [start, end, h, w] = parseArgs(args)
-        mapCurve(
-          Group.fromArray([
-            [0, h * 0.5],
-            [0.5, h * 1.1],
-            [1, h * 0.5]
-          ]),
-          Group.fromArray([
-            [-w * 2, 0],
-            [0, 0],
-            [w * 2, 0]
-          ]),
-          start,
-          end
-        )
-      },
-      '6': argsStr => {
-        const args = splitArgs(argsStr)
-        const [start, end, h, w] = parseArgs(args)
-        mapCurve(
-          Group.fromArray([
-            [0, 0],
-            [0, h],
-            [1, h],
-            [1, 0]
-          ]),
-          Group.fromArray([
-            [-w, 0],
-            [-w, 0],
-            [w, 0],
-            [w, 0]
-          ]),
-          start,
-          end
-        )
-      },
-      circle: argsStr => {
-        const args = splitArgs(argsStr)
-        const center = parsePoint(args[0])
-        const [w, h] = evalPoint(args[1])
-        const points = Group.fromArray([
-          [w, 0],
-          [w, h],
-          [-w, h],
-          [-w, -h],
-          [w, -h],
-          [w, 0]
-        ])
-          .scale(this.transform.scale, [0, 0])
-          .rotate2D(this.transform.rotation * Math.PI * 2, [0, 0])
-          .add(center)
-        this.currentCurve.push(
-          ...points.map((x, i) => {
-            this.progress.point = i / (points.length - 1)
-            return new AsemicPt(this, x)
-          })
-        )
-      },
-      repeat: argsStr => {
-        const [count, content] = splitString(argsStr, ' ')
-        const countNum = evalExpr(count)
-
-        for (let i = 0; i < countNum; i++) {
-          this.parse(content.trim().replace(/I/g, i.toString()))
-        }
-      }
-    }
-
-    const parseTransform = (token: string) => {
-      // { ...transforms }
-      const transformStr = token.substring(1, token.length - 1)
-      const transforms = transformStr.split(' ')
-
-      transforms.forEach(transform => {
-        if (transform === '<') {
-          Object.assign(this.transform, this.transforms.pop()!)
-        } else if (transform === '>') {
-          const newTransform = {} as Transform
-          for (let key of Object.keys(this.transform)) {
-            if (this.transform[key] instanceof Pt) {
-              newTransform[key] = this.transform[key].clone()
-            } else {
-              newTransform[key] = this.transform[key]
-            }
-          }
-          this.transforms.push(newTransform)
-        } else if (transform === '!') {
-          // Reset all transformations
-          this.transform.scale.set([1, 1])
-          this.transform.rotation = 0
-          this.transform.translation.set([0, 0])
-        } else if (transform.startsWith('*!')) {
-          // Reset scale
-          this.transform.scale.set([1, 1])
-        } else if (transform.startsWith('@!')) {
-          // Reset rotation
-          this.transform.rotation = 0
-        } else if (transform.startsWith('+!')) {
-          // Reset translation
-          this.transform.translation.set([0, 0])
-        } else if (transform.startsWith('+=>')) {
-          this.transform.add = transform.substring(3)
-        } else if (transform.startsWith('@=>')) {
-          this.transform.rotate = transform.substring(3)
-        } else if (transform.startsWith('*')) {
-          // Scale
-          this.transform.scale.multiply(evalPoint(transform.substring(1)))
-        } else if (transform.startsWith('@')) {
-          // Rotation
-          this.transform.rotation += evalExpr(transform.substring(1))!
-        } else if (transform.startsWith('+')) {
-          // Translation
-          this.transform.translation.add(
-            evalPoint(transform.substring(1))
-              .scale(this.transform.scale)
-              .rotate2D(this.transform.rotation * Math.PI * 2)
-          )
-        } else {
-          const keyCall = transform.match(/(\w+)\:(.+)/)
-          if (keyCall) {
-            const key = keyCall[1]
-            const value = keyCall[2]
-            switch (key) {
-              case 'thickness':
-                this.transform.thickness = () => {
-                  return evalExpr(value)
-                }
-                break
-              default:
-                if (value.includes(',')) {
-                  const list = value.split(',')
-                  if (list.length > 2) {
-                    this.transform[key] = new AsemicPt(
-                      this,
-                      value.split(',').map(x => evalExpr(x)!)
-                    )
-                  } else {
-                    this.transform[key] = evalPoint(value)
-                  }
+      } else {
+        const keyCall = transform.match(/(\w+)\:(.+)/)
+        if (keyCall) {
+          const key = keyCall[1]
+          const value = keyCall[2]
+          switch (key) {
+            case 'thickness':
+              this.transform.thickness = () => {
+                return this.evalExpr(value)
+              }
+              break
+            default:
+              if (value.includes(',')) {
+                const list = value.split(',')
+                if (list.length > 2) {
+                  this.transform[key] = new AsemicPt(
+                    this,
+                    value.split(',').map(x => this.evalExpr(x)!)
+                  )
                 } else {
-                  this.transform[key] = evalExpr(value)
+                  this.transform[key] = this.evalPoint(value)
                 }
-                break
-            }
+              } else {
+                this.transform[key] = this.evalExpr(value)
+              }
+              break
           }
         }
-      })
-    }
+      }
+    })
+  }
+
+  parse(source: string) {
+    const hasDebugged = this.debugged.includes(source)
+    if (!hasDebugged) this.debugged.push(source)
+    source = source + ' '
+
+    // Predefined functions
 
     // Tokenize the source
     let tokens: string[] = []
@@ -855,41 +828,17 @@ export class Parser {
     let inParentheses = 0
     let inBraces = 0
     let quote = false
-    let fontSettings = false
     let evaling = false
     let functionCall = false
 
-    const parsedString = source
-      .replace(/^\/\/.*?$/gm, '')
-      .replace(/\/\*.*?\*\//g, '')
+    const parsedString = source.replace(/\/\/.*?\/\//g, '')
     for (let i = 0; i < parsedString.length; i++) {
       const char = parsedString[i]
 
       if (char === '"' && parsedString[i - 1] !== '\\') quote = !quote
       if (char === '`' && parsedString[i - 1] !== '\\') evaling = !evaling
-      if (char === '{' && parsedString[i + 1] === '{') {
-        fontSettings = true
-        current += '{{' // Include the opening brace
-        i++
-        continue
-      } else if (char === '}' && parsedString[i + 1] === '}') {
-        fontSettings = false
-        current += '}}' // Include the closing brace
-        i++
-        continue
-      } else if (char === '(' && parsedString[i + 1] === '(') {
-        functionCall = true
-        current += '(('
-        i++
-        continue
-      } else if (char === ')' && parsedString[i + 1] === ')') {
-        functionCall = false
-        current += '))'
-        i++
-        continue
-      }
 
-      if (!quote && !evaling && !fontSettings && !functionCall) {
+      if (!quote && !evaling && !functionCall) {
         if (char === '[') inBrackets++
         else if (char === ']') inBrackets--
         else if (char === '(') inParentheses++
@@ -900,13 +849,12 @@ export class Parser {
 
       if (
         !quote &&
-        !fontSettings &&
         !evaling &&
         !functionCall &&
-        (char === ' ' || char === '\n') &&
         inBrackets === 0 &&
         inParentheses === 0 &&
-        inBraces === 0
+        inBraces === 0 &&
+        (char === ' ' || char === '\n')
       ) {
         if (current) {
           tokens.push(current)
@@ -920,6 +868,21 @@ export class Parser {
     for (let i = 0; i < tokens.length; i++) {
       try {
         let token = tokens[i].trim()
+
+        if (token.startsWith('+')) {
+          token = token.substring(1)
+        } else {
+          if (this.currentCurve.length > 0) {
+            if (this.currentCurve.length === 2) {
+              this.progress.point = 0.5
+              this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
+            }
+            this.curves.push(this.currentCurve)
+            this.currentCurve = new AsemicGroup()
+            this.progress.point = 0
+            this.progress.curve++
+          }
+        }
 
         if (token.startsWith('{{') && token.endsWith('}}')) {
           token = token.substring(2, token.length - 2).trim()
@@ -941,10 +904,14 @@ export class Parser {
 
           continue
         } else if (token.startsWith('{') && token.endsWith('}')) {
-          parseTransform(token)
+          this.parseTransform(token)
           continue
         } else if (token.startsWith('`')) {
-          const result = eval(token.substring(1, token.length - 1))
+          console.log(this.curves)
+
+          const result = eval(`({ _ }) => {
+            ${token.substring(1, token.length - 1)}
+          }`)({ _ })
           if (typeof result === 'string') {
             this.parse(result)
           }
@@ -967,33 +934,18 @@ export class Parser {
           continue
         }
 
-        if (token.startsWith('+')) {
-          token = token.substring(1)
-        } else {
-          if (this.currentCurve.length > 0) {
-            if (this.currentCurve.length === 2) {
-              this.progress.point = 0.5
-              this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
-            }
-            this.curves.push(this.currentCurve)
-            this.currentCurve = new AsemicGroup()
-            this.progress.point = 0
-            this.progress.curve++
-          }
-        }
-
         if (token.startsWith('[')) {
           const pointsStr = token.substring(1, token.length - 1)
           const pointsTokens = pointsStr.split(' ')
 
           pointsTokens.forEach((pointToken, i) => {
             if (pointToken.startsWith('{')) {
-              parseTransform(token)
+              this.parseTransform(token)
               return
             }
             if (!pointToken.trim()) return
             this.progress.point = i / (pointsTokens.length - 1)
-            const point = parsePoint(pointToken)
+            const point = this.parsePoint(pointToken)
             this.currentCurve.push(point)
           })
 
@@ -1001,7 +953,7 @@ export class Parser {
         } else if (token.startsWith('((')) {
           const functionName = token.substring(2, token.indexOf(' '))
           const text = token.substring(token.indexOf(' ') + 1, token.length - 2)
-          functions[functionName] = (args: string) => {
+          this.functions[functionName] = (args: string) => {
             const parseArgs = splitArgs(args)
             let newText = text
             for (let i = 0; i < parseArgs.length; i++) {
@@ -1019,16 +971,17 @@ export class Parser {
             const argsStr = functionCall[2]
 
             // Parse function arguments
-            if (!functions[functionName])
+            if (!this.functions[functionName])
               throw new Error(
                 `unknown function: ${functionName} with args ${argsStr}`
               )
-            functions[functionName](argsStr)
+            this.functions[functionName](argsStr)
             continue
           }
         }
       } catch (e) {
-        throw new Error(`Parsing failed: ${tokens[i]}; ${e}`)
+        console.error(`Parsing failed: ${tokens[i]}; ${e}`)
+        continue
       }
     }
 

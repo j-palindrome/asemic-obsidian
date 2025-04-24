@@ -7,7 +7,9 @@ self.onmessage = (ev: MessageEvent<Data>) => {
     Object.assign(parser.progress, ev.data.progress)
   }
   if (ev.data.settingsSource) {
-    self.postMessage(parser.parseSettings(ev.data.settingsSource))
+    parser.parseSettings(ev.data.settingsSource)
+
+    self.postMessage({ settings: parser.settings })
   }
   if (ev.data.preProcess) {
     parser.preProcess = ev.data.preProcess

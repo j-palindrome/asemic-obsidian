@@ -18,14 +18,19 @@ export default function AsemicApp({
   source: string
   obsidian?: ObsidianAPI
 }) {
-  const [settingsSource, ...scenes] = source.split('---').map(x => x.trim())
+  const [settingsSource, ...scenes] = source.split('\n---\n').map(x => x.trim())
 
   const [index, setIndex] = useState(0)
   const useScene = () => {
     const [scene, setScene] = useState(scenes[index])
-    return [scene, setScene] as const
+
+    const sceneRef = useRef(scene)
+    useEffect(() => {
+      sceneRef.current = scene
+    }, [scene])
+    return [scene, setScene, sceneRef] as const
   }
-  const [scene, setScene] = useScene()
+  const [scene, setScene, sceneRef] = useScene()
 
   useEffect(() => {
     setScene(scenes[index])
@@ -38,6 +43,10 @@ export default function AsemicApp({
   const settingsRef = useRef(settings)
   useEffect(() => {
     settingsRef.current = settings
+
+    if (settings.scene) {
+      setIndex(settings.scene)
+    }
   }, [settings])
 
   const worker = useMemo(() => new AsemicWorker() as Worker, [])
@@ -99,22 +108,6 @@ export default function AsemicApp({
       //   })
       // })
 
-      worker.postMessage({ settingsSource })
-      return () => {
-        resizeObserver.disconnect()
-        worker.terminate()
-        window.removeEventListener('resize', onResize)
-        cancelAnimationFrame(animationFrame.current)
-      }
-    }, [])
-
-    useEffect(() => {
-      onResize()
-      setIsSetup(true)
-    }, [settings])
-
-    useEffect(() => {
-      if (!isSetup) return
       const parseMessages = (evt: { data: DataBack }) => {
         if (evt.data.settings) {
           setSettings(settings => ({
@@ -128,11 +121,11 @@ export default function AsemicApp({
         if (evt.data.curves) {
           if (settingsRef.current.h === 'auto') {
             invariant(
-              canvas.current &&
-                canvas.current.width !== 0 &&
-                evt.data.curves.length > 0,
-              `Failed: ${canvas.current} ${canvas.current?.width} ${evt.data.curves.length}`
+              canvas.current && canvas.current.width !== 0,
+              `Failed: ${canvas.current} ${canvas.current?.width}`
             )
+
+            if (evt.data.curves.length === 0) return
 
             const maxY = max(flatMap(evt.data.curves, '1'))! + 0.1
 
@@ -162,7 +155,7 @@ export default function AsemicApp({
           if (!settingsRef.current.animating) return
           animationFrame.current = requestAnimationFrame(() => {
             worker.postMessage({
-              source: scene
+              source: sceneRef.current
             })
           })
         }
@@ -174,6 +167,21 @@ export default function AsemicApp({
       }
       worker.onmessage = parseMessages
 
+      worker.postMessage({ settingsSource })
+      return () => {
+        resizeObserver.disconnect()
+        worker.terminate()
+        window.removeEventListener('resize', onResize)
+      }
+    }, [worker])
+
+    useEffect(() => {
+      onResize()
+      setIsSetup(true)
+    }, [settings])
+
+    useEffect(() => {
+      if (!isSetup) return
       const restart = async () => {
         const preProcess = defaultPreProcess()
         const links = source.match(/\[\[.*?\]\]/)
@@ -195,6 +203,9 @@ export default function AsemicApp({
         })
       }
       restart()
+      return () => {
+        cancelAnimationFrame(animationFrame.current)
+      }
     }, [scene, isSetup])
   }
   setup()
@@ -306,10 +317,14 @@ export default function AsemicApp({
                 onClick={() => {
                   const currentScene = editable.current.value
                   setScene(editable.current.value)
-                  const newSource = source.replace(scenes[index], currentScene)
+                  const newSource = source.split('\n---\n')
+                  newSource[index + 1] = currentScene
 
                   if (obsidian) {
-                    obsidian.overwriteCurrentFile(source, newSource)
+                    obsidian.overwriteCurrentFile(
+                      source,
+                      newSource.join('\n---\n')
+                    )
                   }
                 }}>
                 save
