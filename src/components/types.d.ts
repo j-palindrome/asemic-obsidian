@@ -10,6 +10,7 @@ declare global {
   }
   type DataBack = {
     response?: 'editable'
+    bitmap?: ImageBitmap
     [string: string]: any
   } & Partial<Parser['output']>
 }

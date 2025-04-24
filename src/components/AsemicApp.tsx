@@ -53,11 +53,6 @@ export default function AsemicApp({
   const lastTransform = useRef<FlatTransform>(null!)
   const setup = () => {
     const animationFrame = useRef(0)
-    const offscreenCanvas = useMemo(() => new OffscreenCanvas(1080, 1080), [])
-    const renderer = useMemo(() => {
-      const ctx = offscreenCanvas.getContext('2d')!
-      return new Renderer(ctx)
-    }, [])
     const onscreen = useRef<ImageBitmapRenderingContext>(null!)
     const client = useMemo(() => new Client('localhost', 7001), [])
     const [isSetup, setIsSetup] = useState(false)
@@ -67,8 +62,6 @@ export default function AsemicApp({
       if (!boundingRect.width || !boundingRect.height) return
       devicePixelRatio = 2
 
-      offscreenCanvas.width = boundingRect.width * devicePixelRatio
-      offscreenCanvas.height = boundingRect.height * devicePixelRatio
       canvas.current.width = boundingRect.width * devicePixelRatio
       canvas.current.height = boundingRect.height * devicePixelRatio
 
@@ -81,8 +74,8 @@ export default function AsemicApp({
       // thisTexture.needsUpdate = true
       worker.postMessage({
         progress: {
-          height: offscreenCanvas.height,
-          width: offscreenCanvas.width
+          height: canvas.current.height,
+          width: canvas.current.width
         }
       })
     }
@@ -120,11 +113,6 @@ export default function AsemicApp({
         }
         if (evt.data.curves) {
           if (settingsRef.current.h === 'auto') {
-            invariant(
-              canvas.current && canvas.current.width !== 0,
-              `Failed: ${canvas.current} ${canvas.current?.width}`
-            )
-
             if (evt.data.curves.length === 0) return
 
             const maxY = max(flatMap(evt.data.curves, '1'))! + 0.1
@@ -144,10 +132,10 @@ export default function AsemicApp({
               return
             }
           }
-          renderer.render(evt.data.curves)
-          const bitmap = offscreenCanvas.transferToImageBitmap()
-          onscreen.current.transferFromImageBitmap(bitmap)
-          bitmap.close()
+        }
+        if (evt.data.bitmap) {
+          onscreen.current.transferFromImageBitmap(evt.data.bitmap)
+          evt.data.bitmap.close()
 
           // thisTexture.needsUpdate = true
           // postProcessing.render()
