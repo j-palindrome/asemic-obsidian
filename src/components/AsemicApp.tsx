@@ -85,6 +85,10 @@ export default function AsemicApp({
       // let thisTexture = new CanvasTexture(offscreenCanvas)
       // thisTexture.flipY = false
 
+      // const offscreenCanvas = new OffscreenCanvas(1080, 1080)
+      const ctx = canvas.current.getContext('2d')!
+      const renderer = new Renderer(ctx)
+
       const resizeObserver = new ResizeObserver(onResize)
 
       resizeObserver.observe(canvas.current)
@@ -133,10 +137,9 @@ export default function AsemicApp({
             }
           }
         }
-        if (evt.data.bitmap) {
+        if (evt.data.curves) {
+          renderer.render(evt.data.curves)
           // this is crazy
-          onscreen.current.transferFromImageBitmap(evt.data.bitmap)
-          evt.data.bitmap.close()
 
           // thisTexture.needsUpdate = true
           // postProcessing.render()

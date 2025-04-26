@@ -1,5 +1,5 @@
 export default class Renderer {
-  ctx: OffscreenCanvasRenderingContext2D
+  ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
   render(curves: [number, number][][]) {
     let { ctx } = this
     ctx.resetTransform()
@@ -38,7 +38,9 @@ export default class Renderer {
     }
   }
 
-  constructor(ctx: OffscreenCanvasRenderingContext2D) {
+  constructor(
+    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
+  ) {
     this.ctx = ctx
   }
 }
