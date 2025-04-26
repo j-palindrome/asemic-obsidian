@@ -1,7 +1,7 @@
 import { Curve, Pt } from 'pts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import invariant from 'tiny-invariant'
-import { flatMap, max } from 'lodash'
+import { flatMap, keysIn, max } from 'lodash'
 import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
@@ -218,35 +218,55 @@ export default function AsemicApp({
       const onKeyDown = (ev: KeyboardEvent) => {
         // Check if this is a repeated key event (key held down)
         // Skip adding to keyString if it's a repeated key
+
         if (ev.repeat) {
           return
         }
-        if (ev.key === 'Backspace') {
-          if (ev.metaKey) {
-            keyString = ''
-          } else if (ev.altKey) {
-            keyString = keyString.slice(0, keyString.lastIndexOf(' '))
-          } else {
-            keyString = keyString.slice(0, -1)
+        if (ev.ctrlKey) {
+          const keyMatch = ev.code.match(/\d/)
+          if (keyMatch) {
+            if (ev.altKey) {
+              worker.postMessage({
+                live: {
+                  keysIndex: parseInt(keyMatch[0])
+                }
+              } as Data)
+            } else {
+              worker.postMessage({
+                live: {
+                  textIndex: parseInt(keyMatch[0])
+                }
+              } as Data)
+            }
           }
-        } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
-          keyString += ev.key
-          keysPressed[ev.key] = performance.now()
-        }
+        } else {
+          if (ev.key === 'Backspace') {
+            if (ev.metaKey) {
+              keyString = ''
+            } else if (ev.altKey) {
+              keyString = keyString.slice(0, keyString.lastIndexOf(' '))
+            } else {
+              keyString = keyString.slice(0, -1)
+            }
+          } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
+            keyString += ev.key
+            keysPressed[ev.key] = performance.now()
+          }
 
-        worker.postMessage({
-          progress: {
-            keys: Object.keys(keysPressed)
-              .sort(x => keysPressed[x])
-              .join(''),
-            text: keyString
-          }
-        } as Data)
+          worker.postMessage({
+            live: {
+              keys: Object.keys(keysPressed)
+                .sort(x => keysPressed[x])
+                .join(''),
+              text: keyString
+            }
+          } as Data)
+        }
       }
       const onKeyUp = (ev: KeyboardEvent) => {
         delete keysPressed[ev.key]
         worker.postMessage({
-          progress: {
+          live: {
             keys: Object.keys(keysPressed)
               .sort(x => keysPressed[x])
               .join('')

@@ -57,9 +57,13 @@ export class Parser {
     curve: 0,
     height: 0,
     width: 0,
-    hash: 0,
-    keys: '',
-    text: ''
+    hash: 0
+  }
+  live = {
+    keys: [''],
+    text: [''],
+    textIndex: 0,
+    keysIndex: 0
   }
   fonts: Record<string, AsemicFont> = { default: new DefaultFont() }
   currentFont = 'default'
@@ -76,11 +80,26 @@ export class Parser {
       const slice = Number(args[0] || '0')
       console.log(this.log(slice))
     },
-    text: () => {
-      this.parse(`"${this.progress.text}"`, true)
+    print: () => {
+      console.log(this.live, this.transform)
     },
-    keys: () => {
-      this.parse(`"${this.progress.keys}"`, true)
+    't#': args => {
+      this.live.textIndex = Math.floor(this.evalExpr(args))
+    },
+    'k#': args => {
+      this.live.keysIndex = Math.floor(this.evalExpr(args))
+    },
+    text: args => {
+      this.parse(
+        `"${this.live.text[args ? parseInt(args) : this.live.textIndex]}"`,
+        true
+      )
+    },
+    keys: args => {
+      this.parse(
+        `"${this.live.keys[args ? parseInt(args) : this.live.keysIndex]}"`,
+        true
+      )
     },
     within: argsStr => {
       const args = splitArgs(argsStr)

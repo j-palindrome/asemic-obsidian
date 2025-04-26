@@ -7,6 +7,12 @@ declare global {
     progress?: Partial<Parser['progress']>
     settingsSource?: string
     preProcess?: Parser['preProcess']
+    live: {
+      keys?: string
+      text?: string
+      keysIndex?: number
+      textIndex?: number
+    }
   }
   type DataBack = {
     response?: 'editable'
