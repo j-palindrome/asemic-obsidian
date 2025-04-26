@@ -1,4 +1,4 @@
-import { Pt } from 'pts'
+import { Curve, Pt } from 'pts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import invariant from 'tiny-invariant'
 import { flatMap, max } from 'lodash'
@@ -72,11 +72,13 @@ export default function AsemicApp({
       // )
 
       // thisTexture.needsUpdate = true
+
       worker.postMessage({
         progress: {
           height: canvas.current.height,
           width: canvas.current.width
-        }
+        },
+        source: !settings.animating ? scene : undefined
       })
     }
 
@@ -243,6 +245,13 @@ export default function AsemicApp({
       }
       const onKeyUp = (ev: KeyboardEvent) => {
         delete keysPressed[ev.key]
+        worker.postMessage({
+          progress: {
+            keys: Object.keys(keysPressed)
+              .sort(x => keysPressed[x])
+              .join('')
+          }
+        } as Data)
       }
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('keyup', onKeyUp)
@@ -262,7 +271,11 @@ export default function AsemicApp({
   return (
     <>
       <div
-        className={`relative h-fit w-full bg-black overflow-auto max-h-[calc(100vh-100px)]`}
+        className={`relative w-full bg-black overflow-auto ${
+          settings.h === 'window'
+            ? 'h-[calc(100vh-100px)]'
+            : 'h-fit max-h-[calc(100vh-100px)]'
+        } fullscreen:max-h-screen`}
         ref={frame}
         onClick={ev => {
           if (perform || !editable.current || !ev.altKey) return
@@ -270,10 +283,10 @@ export default function AsemicApp({
           ev.stopPropagation()
 
           const rect = editable.current.getBoundingClientRect()
-          const mouse = new Pt(
+          const mouse = new Pt([
             (ev.clientX - rect.left) / rect.width,
             (ev.clientY - rect.top) / rect.width
-          )
+          ])
           const listenForResponse = (ev: { data: DataBack }) => {
             mouse.rotate2D(lastTransform.current.rotation * Math.PI * 2 * -1)
             mouse.divide(lastTransform.current.scale)
@@ -295,7 +308,7 @@ export default function AsemicApp({
         <canvas
           style={{
             width: '100%',
-            height: settings.h === 'window' ? '100vh' : undefined,
+            height: settings.h === 'window' ? '100%' : undefined,
             aspectRatio:
               settings.h === 'window' ? undefined : `1 / ${settings.h}`
           }}

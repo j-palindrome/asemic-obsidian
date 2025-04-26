@@ -10,5 +10,8 @@ export const defaultSettings = {
 
 export const splitString = (string: string, at: string) => {
   let index = string.indexOf(at)
-  return [string.slice(0, index), string.slice(index + at.length)]
+  return [string.slice(0, index), string.slice(index + at.length)] as [
+    string,
+    string
+  ]
 }

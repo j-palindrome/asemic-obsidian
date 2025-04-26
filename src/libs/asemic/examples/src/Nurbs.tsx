@@ -145,10 +145,10 @@ function Scene() {
   )
 
   let arcLength =
-    new Pt(
+    new Pt([
       window.innerWidth * devicePixelRatio,
       window.innerHeight * devicePixelRatio
-    ).magnitude() /
+    ]).magnitude() /
     (size * spacing)
 
   const material = useMemo(() => {

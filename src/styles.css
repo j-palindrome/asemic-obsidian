@@ -16,3 +16,9 @@
     @apply !block !mr-2 !bg-transparent !cursor-pointer hover:!bg-white/20 !font-mono !text-white/50 !border-0 !text-xs;
   }
 }
+
+@layer components {
+  .fullscreen\:max-h-screen:fullscreen {
+    @apply max-h-screen;
+  }
+}

@@ -11,24 +11,40 @@ export class AsemicFont {
     this.characters[char] = this.defaultCharacters[char]
   }
   parseCharacters(characters: string) {
-    const charList = characters.split(/\n|;/g)
+    const charList = characters.split(/\n|;/g).filter(Boolean)
 
-    charList.forEach(char => {
+    for (let i = 0; i < charList.length; i++) {
+      const char = charList[i].trim()
       let [name, markup] = splitString(char, ':')
-      const escapedCharacters = {
-        '\\n': '\n',
-        '\\s': ' '
-      }
-      for (let char of Object.keys(escapedCharacters)) {
-        if (name.includes(char)) {
-          name = name.replace(
-            new RegExp(escapeRegExp(char), 'g'),
-            escapedCharacters[char]
+      if (name.includes(',')) {
+        const multipleChars = name.split(',')
+        const countNum = multipleChars.length
+        let charString: string[] = []
+        for (let j = 0; j < countNum; j++) {
+          charString.push(
+            // TODO: incorporate this into evalExpr so it doesn't override text
+            `${multipleChars[j]}:${markup
+              .replace(/I/g, j.toString())
+              .replace(/N/g, countNum.toString())}`
           )
         }
+        this.parseCharacters(charString.join('\n'))
+      } else {
+        const escapedCharacters = {
+          '\\n': '\n',
+          '\\s': ' '
+        }
+        for (let char of Object.keys(escapedCharacters)) {
+          if (name.includes(char)) {
+            name = name.replace(
+              new RegExp(escapeRegExp(char), 'g'),
+              escapedCharacters[char]
+            )
+          }
+        }
+        this.characters[name] = markup
       }
-      this.characters[name] = markup
-    })
+    }
   }
   constructor(characters: string) {
     this.parseCharacters(characters)
