@@ -104,6 +104,15 @@ export class AsemicPt extends Pt {
   thickness: number
   parent: Parser
 
+  lerp(nextPt: AsemicPt, amount: number): this {
+    this.add(nextPt.$subtract(this).scale(amount))
+    return this
+  }
+
+  $lerp(nextPt: AsemicPt, amount: number): AsemicPt {
+    return this.$add(nextPt.$subtract(this).scale(amount))
+  }
+
   clone(): AsemicPt {
     return new AsemicPt(this.parent, this.x, this.y)
   }

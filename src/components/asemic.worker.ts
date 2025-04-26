@@ -42,6 +42,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
         ...parser.output,
         bitmap
       },
+      // @ts-ignore
       undefined,
       [bitmap]
     )

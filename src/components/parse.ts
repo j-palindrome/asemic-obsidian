@@ -87,10 +87,10 @@ export class Parser {
       console.log(this.log(slice))
     },
     text: () => {
-      this.parse(`"${this.progress.text}"`)
+      this.parse(`"${this.progress.text}"`, true)
     },
     keys: () => {
-      this.parse(`"${this.progress.keys}"`)
+      this.parse(`"${this.progress.keys}"`, true)
     },
     within: argsStr => {
       const args = splitArgs(argsStr)
@@ -233,7 +233,7 @@ export class Parser {
       const countNum = this.evalExpr(count)
 
       for (let i = 0; i < countNum; i++) {
-        this.parse(content.trim().replace(/I/g, i.toString()))
+        this.parse(content.trim().replace(/I/g, i.toString()), true)
       }
     }
   }
@@ -410,7 +410,7 @@ export class Parser {
       parseSetting(token.trim())
     }
 
-    this.parse(rest.join('\n'))
+    this.parse(rest.join('\n'), true)
   }
 
   doPreProcess() {
@@ -627,6 +627,23 @@ export class Parser {
     point: string,
     defaultValue: boolean | number = true
   ): Pt {
+    if (/^[^<]+,[^<]+</.test(point)) {
+      const [firstPoint, fade, ...nextPoints] = point
+        .split(/[<>]/g)
+        .map((x, i) => {
+          return i === 1 ? this.evalExpr(x) : this.evalPoint(x, defaultValue)
+        })
+      const fadeNm = fade as number
+      const points = [firstPoint, ...nextPoints] as Pt[]
+      let index = (points.length - 1) * fadeNm
+      if (index === points.length - 1) index -= 0.0001
+
+      return points[Math.floor(index)].add(
+        points[Math.floor(index) + 1]!.$subtract(
+          points[Math.floor(index)]
+        ).scale(index % 1)
+      )
+    }
     const parts = point.split(',')
     if (parts.length === 1) {
       if (defaultValue === false) throw new Error(`Incomplete point: ${point}`)
@@ -636,7 +653,11 @@ export class Parser {
       )
     }
     try {
-      return new Pt(this.evalExpr(parts[0])!, this.evalExpr(parts[1])!)
+      return new AsemicPt(
+        this,
+        this.evalExpr(parts[0])!,
+        this.evalExpr(parts[1])!
+      )
     } catch (e) {
       throw new Error(`Failed to parse point ${point}; ${e}`)
     }
@@ -814,7 +835,7 @@ export class Parser {
     })
   }
 
-  parse(source: string) {
+  parse(source: string, silent?: boolean) {
     const hasDebugged = this.debugged.includes(source)
     if (!hasDebugged) this.debugged.push(source)
     source = source + ' '
@@ -913,7 +934,7 @@ export class Parser {
             ${token.substring(1, token.length - 1)}
           }`)({ _ })
           if (typeof result === 'string') {
-            this.parse(result)
+            this.parse(result, true)
           }
           continue
         } else if (token.startsWith('"')) {
@@ -929,7 +950,8 @@ export class Parser {
                 .map(x => font.characters[x])
                 .filter(Boolean)
                 .join(formatSpace(font.characters['\\.'])) +
-              formatSpace(font.characters['\\$'])
+              formatSpace(font.characters['\\$']),
+            true
           )
           continue
         }
@@ -959,7 +981,7 @@ export class Parser {
             for (let i = 0; i < parseArgs.length; i++) {
               newText = newText.replace(`${i}`, parseArgs[i])
             }
-            this.parse(newText)
+            this.parse(newText, true)
           }
           continue
         } else {
@@ -991,7 +1013,7 @@ export class Parser {
     }
 
     // error detection
-    if (this.settings.debug && !hasDebugged) {
+    if (this.settings.debug && !hasDebugged && !silent) {
       const flatCurves = this.curves.flat()
 
       if (

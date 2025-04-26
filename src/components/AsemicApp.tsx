@@ -134,6 +134,7 @@ export default function AsemicApp({
           }
         }
         if (evt.data.bitmap) {
+          // this is crazy
           onscreen.current.transferFromImageBitmap(evt.data.bitmap)
           evt.data.bitmap.close()
 
