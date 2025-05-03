@@ -11,20 +11,26 @@ export type Transform = {
   scale: Pt
   rotation: number
   translation: Pt
-  thickness: number | (() => number)
+  width: number | (() => number)
   add?: string
   rotate?: string
+}
+const TransformAliases = {
+  scale: ['\\*', 'sca', 'scale'],
+  rotation: ['\\@', 'rot', 'rotate'],
+  translation: ['\\+', 'tra', 'translate'],
+  width: ['w', 'wid', 'width']
 }
 export type FlatTransform = {
   scale: Pt
   rotation: number
   translation: Pt
-  thickness: number
+  width: number
 }
 const defaultTransform = () => ({
   translation: new Pt([0, 0]),
   scale: new Pt([1, 1]),
-  thickness: 1,
+  width: 1,
   rotation: 0
 })
 const defaultOutput = () =>
@@ -47,10 +53,11 @@ export class Parser {
     curve: 0,
     height: 0,
     width: 0,
-    hash: 0,
     seed: 1,
     index: 0,
-    countNum: 0
+    countNum: 0,
+    accums: [] as number[],
+    accumIndex: 0
   }
   live = {
     keys: [''],
@@ -272,7 +279,8 @@ export class Parser {
     this.curves = []
     this.progress.point = 0
     this.progress.curve = 0
-    this.progress.hash = 0
+    this.progress.seed = 1
+    this.progress.accumIndex = 0
     this.progress.time = Math.floor(performance.now() - this.startTime) / 1000
     this.output = defaultOutput()
     this.transform = defaultTransform()
@@ -318,7 +326,7 @@ export class Parser {
           .$subtract(curve[0])
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
-          .scale(curve.at(1).thickness / 2 / w)
+          .scale(curve.at(1).width / 2 / w)
 
         const p0 = curve.at(0).clone()
         p0.add(normal)
@@ -339,7 +347,7 @@ export class Parser {
           .$subtract(curve.at(0))
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
-          .scale(curve.at(0).thickness / 2 / w)
+          .scale(curve.at(0).width / 2 / w)
         // p0.add(n0)
         push([p0.x, p0.y])
         // push([...curve.at(0).clone()])
@@ -359,8 +367,8 @@ export class Parser {
             .unit()
             .scale(
               (i === curve.length - 3
-                ? curve.at(i + 2).thickness
-                : (curve.at(i + 1).thickness + curve.at(i + 2).thickness) / 2) /
+                ? curve.at(i + 2).width
+                : (curve.at(i + 1).width + curve.at(i + 2).width) / 2) /
                 2 /
                 w
             )
@@ -371,7 +379,7 @@ export class Parser {
             .$subtract(curve.at(i))
             .rotate2D(0.25 * Math.PI * 2)
             .unit()
-            .scale(curve.at(i + 1).thickness / 2 / w)
+            .scale(curve.at(i + 1).width / 2 / w)
           p1.add(n1)
 
           // The curve is given in [x,y] points with quadratic curves drawn between them. For each pair [p1 p2], the first control point is p1, and the second control point is (p1 + p2) / 2.
@@ -389,7 +397,7 @@ export class Parser {
           .$subtract(reversedCurve.at(0))
           .rotate2D(0.25 * Math.PI * 2)
           .unit()
-          .scale(reversedCurve.at(0).thickness / 2 / w)
+          .scale(reversedCurve.at(0).width / 2 / w)
         pEnd.add(nEnd)
         push([pEnd.x, pEnd.y])
         for (let i = 0; i <= curve.length - 3; i++) {
@@ -502,13 +510,24 @@ export class Parser {
           }
         }
         for (let key of Object.keys(this.constants)) {
+          if (!expr.includes(key)) continue
           const regex = new RegExp(key, 'g')
           expr = expr.replace(regex, this.constants[key]())
         }
       }
 
       const functions: Record<string, (x: string) => number> = {
-        sin: x => Math.sin(this.evalExpr(x, false) * Math.PI * 2) * 0.5 + 0.5
+        sin: x => Math.sin(this.evalExpr(x, false) * Math.PI * 2) * 0.5 + 0.5,
+        acc: x => {
+          if (!this.progress.accums[this.progress.accumIndex])
+            this.progress.accums.push(0)
+          const value = this.evalExpr(x, false)
+          // correct for 60fps
+          this.progress.accums[this.progress.accumIndex] += value / 60
+          const currentAccum = this.progress.accums[this.progress.accumIndex]
+          this.progress.accumIndex++
+          return currentAccum
+        }
       }
 
       if (expr.includes('(')) {
@@ -610,6 +629,7 @@ export class Parser {
             if (expr.length === 1) {
               return Math.random()
             }
+            this.progress.seed++
             return this.hash(this.evalExpr(expr.substring(1)))
 
           case '~':
@@ -801,27 +821,56 @@ export class Parser {
         this.transform.add = transform.substring(3)
       } else if (transform.startsWith('@=>')) {
         this.transform.rotate = transform.substring(3)
-      } else if (transform.startsWith('*')) {
-        // Scale
-        this.transform.scale.multiply(this.evalPoint(transform.substring(1)))
-      } else if (transform.startsWith('@')) {
-        // Rotation
-        this.transform.rotation += this.evalExpr(transform.substring(1))!
-      } else if (transform.startsWith('+')) {
-        // Translation
-        this.transform.translation.add(
-          this.evalPoint(transform.substring(1))
-            .scale(this.transform.scale)
-            .rotate2D(this.transform.rotation * Math.PI * 2)
+      } else if (
+        transform.match(
+          new RegExp(`^(${TransformAliases.scale.join('|')})(.+)`)
         )
+      ) {
+        // Scale
+        const match = transform.match(
+          new RegExp(`^(${TransformAliases.scale.join('|')})(.+)`)
+        )
+        if (match) {
+          this.transform.scale.multiply(this.evalPoint(match[2]))
+        }
+      } else if (
+        transform.match(
+          new RegExp(`^(${TransformAliases.rotation.join('|')})(.+)`)
+        )
+      ) {
+        // Rotation
+        const match = transform.match(
+          new RegExp(`^(${TransformAliases.rotation.join('|')})(.+)`)
+        )
+        if (match) {
+          this.transform.rotation += this.evalExpr(match[2])!
+        }
+      } else if (
+        transform.match(
+          new RegExp(`^(${TransformAliases.translation.join('|')})(.+)`)
+        )
+      ) {
+        // Translation
+        const match = transform.match(
+          new RegExp(`^(${TransformAliases.translation.join('|')})(.+)`)
+        )
+        if (match) {
+          this.transform.translation.add(
+            this.evalPoint(match[2])
+              .scale(this.transform.scale)
+              .rotate2D(this.transform.rotation * Math.PI * 2)
+          )
+        }
       } else {
         const keyCall = transform.match(/(\w+)\:(.+)/)
         if (keyCall) {
           const key = keyCall[1]
           const value = keyCall[2]
           switch (key) {
-            case 'thickness':
-              this.transform.thickness = () => {
+            case 'width':
+            case 'w':
+            case 'wid':
+              this.transform.width = () => {
                 return this.evalExpr(value)
               }
               break
@@ -847,6 +896,17 @@ export class Parser {
   }
 
   parse(source: string, silent?: boolean) {
+    const addCurve = () => {
+      if (this.currentCurve.length === 2) {
+        this.progress.point = 0.5
+        this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
+      }
+      this.curves.push(this.currentCurve)
+      this.currentCurve = new AsemicGroup()
+      this.progress.point = 0
+      this.progress.curve++
+    }
+
     this.logged = this.debugged.includes(source)
     if (!this.logged) this.debugged.push(source)
 
@@ -903,10 +963,14 @@ export class Parser {
       }
     }
 
-    let adding = false
     for (let i = 0; i < tokens.length; i++) {
       try {
         let token = tokens[i].trim()
+        let adding = false
+        if (token.startsWith('+')) {
+          token = token.substring(1)
+          adding = true
+        }
 
         if (token.startsWith('{{') && token.endsWith('}}')) {
           const parseFontSettings = () => {
@@ -936,8 +1000,12 @@ export class Parser {
             const parseArgs = splitArgs(args)
             let newText = text
             for (let i = 0; i < parseArgs.length; i++) {
-              newText = newText.replace(`${i}`, parseArgs[i])
+              newText = newText.replace(
+                new RegExp(`\\$${i + 1}`, 'g'),
+                parseArgs[i]
+              )
             }
+
             this.parse(newText, true)
           }
           continue
@@ -966,20 +1034,14 @@ export class Parser {
                 const numTimes = parseFloat(count)
                 let newString = ''
                 for (let i = 0; i < numTimes; i++) {
-                  this.progress.hash++
+                  this.progress.seed++
                   newString +=
-                    substring[
-                      Math.floor(
-                        this.hash(this.progress.hash) * substring.length
-                      )
-                    ]
+                    substring[Math.floor(this.hash(1) * substring.length)]
                 }
                 return newString
               } else {
-                this.progress.hash++
-                return substring[
-                  Math.floor(this.hash(this.progress.hash) * substring.length)
-                ]
+                this.progress.seed++
+                return substring[Math.floor(this.hash(1) * substring.length)]
               }
             }
           )
@@ -998,19 +1060,19 @@ export class Parser {
           continue
         }
 
-        if (token.startsWith('+')) {
-          token = token.substring(1)
-          adding = true
-        } else {
+        const constMatch = token.match(/([\w]+?)\=(.*)/)
+        if (constMatch) {
+          const [_, key, value] = constMatch
+          this.constants[key] = () => {
+            return this.evalExpr(value)
+          }
+
+          continue
+        }
+
+        if (!adding) {
           if (this.currentCurve.length > 0) {
-            if (this.currentCurve.length === 2) {
-              this.progress.point = 0.5
-              this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
-            }
-            this.curves.push(this.currentCurve)
-            this.currentCurve = new AsemicGroup()
-            this.progress.point = 0
-            this.progress.curve++
+            addCurve()
           }
         }
 
@@ -1053,8 +1115,7 @@ export class Parser {
     }
 
     if (this.currentCurve.length > 0) {
-      this.curves.push(this.currentCurve)
-      this.currentCurve = new AsemicGroup()
+      addCurve()
     }
 
     // error detection

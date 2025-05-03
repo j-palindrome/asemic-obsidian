@@ -29,5 +29,9 @@ declare module '*.md' {
   const source: string
   export default source
 }
-
+declare global {
+  interface Window {
+    lastSource?: number
+  }
+}
 export {}

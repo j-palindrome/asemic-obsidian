@@ -101,7 +101,7 @@ export class AsemicGroup extends Group {
 }
 
 export class AsemicPt extends Pt {
-  thickness: number
+  width: number
   parent: Parser
 
   lerp(nextPt: AsemicPt, amount: number): this {
@@ -177,10 +177,10 @@ export class AsemicPt extends Pt {
 
   constructor(parent: Parser, ...args: ConstructorParameters<typeof Pt>) {
     super(...args)
-    this.thickness =
-      typeof parent.transform.thickness === 'function'
-        ? parent.transform.thickness()
-        : parent.transform.thickness
+    this.width =
+      typeof parent.transform.width === 'function'
+        ? parent.transform.width()
+        : parent.transform.width
     this.parent = parent
   }
 }

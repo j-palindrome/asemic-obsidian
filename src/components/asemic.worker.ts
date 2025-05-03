@@ -31,7 +31,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
         translation: parser.transform.translation,
         rotation: parser.transform.rotation,
         scale: parser.transform.scale,
-        thickness: parser.getDynamicValue(parser.transform.thickness)
+        width: parser.getDynamicValue(parser.transform.width)
       } as FlatTransform,
       ...parser.output
     })

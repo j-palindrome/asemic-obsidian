@@ -25,7 +25,7 @@ export default function AsemicApp({
     .map(x => x.trim())
   const [settingsSource, setSettingsSource] = useState(settingsSourceOriginal)
 
-  const [index, setIndex] = useState(0)
+  const [index, setIndex] = useState(window.lastSource || 0)
   const useScene = () => {
     const [scene, setScene] = useState(scenes[index])
 
@@ -84,7 +84,7 @@ export default function AsemicApp({
           height: canvas.current.height,
           width: canvas.current.width
         },
-        source: !settings.animating ? scene : undefined
+        source: !settingsRef.current.animating ? sceneRef.current : undefined
       })
     }
 
@@ -133,7 +133,6 @@ export default function AsemicApp({
               canvas.current.height !== Math.floor(maxY * canvas.current.width)
             ) {
               canvas.current.height = canvas.current.width * maxY
-
               onResize()
 
               animationFrame.current = requestAnimationFrame(() => {
@@ -413,6 +412,7 @@ export default function AsemicApp({
                   const newSource = source.split('\n---\n')
                   newSource[index + 1] = currentScene
                   newSource[0] = settingsSource
+                  window.lastSource = index
 
                   if (obsidian) {
                     obsidian.overwriteCurrentFile(
@@ -463,6 +463,21 @@ export default function AsemicApp({
                   setIndex(index + 1 > scenes.length - 1 ? 0 : index + 1)
                 }}>
                 {'>'}
+              </button>
+              <button
+                onClick={() => {
+                  const newSource = source.split('\n---\n')
+                  newSource.splice(index + 1 + 1, 0, '')
+                  window.lastSource = index + 1
+
+                  if (obsidian) {
+                    obsidian.overwriteCurrentFile(
+                      source,
+                      newSource.join('\n---\n')
+                    )
+                  }
+                }}>
+                {'+'}
               </button>
             </div>
 
