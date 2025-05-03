@@ -5,7 +5,8 @@ export const defaultSettings = {
   debug: true as boolean,
   h: 'auto' as number | 'window' | 'auto',
   perform: false as boolean,
-  scene: 0 as number
+  scene: 0 as number,
+  fullscreen: false
 }
 
 export const splitString = (string: string, at: string) => {

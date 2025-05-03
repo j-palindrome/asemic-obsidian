@@ -43,7 +43,8 @@ module.exports = {
       fontFamily: {
         menu: 'var(--font-interface)',
         serif: 'var(--font-text)',
-        sans: 'var(--font-text)'
+        sans: 'var(--font-text)',
+        mono: 'Fira Code'
       },
       borderRadius: {
         icon: 'var(--clickable-icon-radius)',

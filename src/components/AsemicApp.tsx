@@ -10,6 +10,8 @@ import Renderer from './renderer'
 import { ArgumentType, Client } from 'node-osc'
 import ObsidianAPI from 'src/plugin/ObsidianApi'
 import { defaultPreProcess } from './utils'
+// @ts-ignore
+import readmeText from '../../README.md'
 
 export default function AsemicApp({
   source,
@@ -18,7 +20,10 @@ export default function AsemicApp({
   source: string
   obsidian?: ObsidianAPI
 }) {
-  const [settingsSource, ...scenes] = source.split('\n---\n').map(x => x.trim())
+  const [settingsSourceOriginal, ...scenes] = source
+    .split('\n---\n')
+    .map(x => x.trim())
+  const [settingsSource, setSettingsSource] = useState(settingsSourceOriginal)
 
   const [index, setIndex] = useState(0)
   const useScene = () => {
@@ -31,6 +36,7 @@ export default function AsemicApp({
     return [scene, setScene, sceneRef] as const
   }
   const [scene, setScene, sceneRef] = useScene()
+  const [editSettings, setEditSettings] = useState(false)
 
   useEffect(() => {
     setScene(scenes[index])
@@ -161,7 +167,6 @@ export default function AsemicApp({
       }
       worker.onmessage = parseMessages
 
-      worker.postMessage({ settingsSource })
       return () => {
         resizeObserver.disconnect()
         worker.terminate()
@@ -170,9 +175,13 @@ export default function AsemicApp({
     }, [worker])
 
     useEffect(() => {
+      worker.postMessage({ settingsSource })
+    }, [settingsSource])
+
+    useEffect(() => {
       onResize()
       setIsSetup(true)
-    }, [settings])
+    }, [])
 
     useEffect(() => {
       if (!isSetup) return
@@ -212,10 +221,25 @@ export default function AsemicApp({
   }, [scene])
 
   const useKeys = () => {
+    const [live, setLive] = useState({
+      keys: [''],
+      text: [''],
+      index: { type: 'text', value: 0 }
+    })
+
     useEffect(() => {
-      let keysPressed: Record<string, number> = {}
-      let keyString = ''
+      worker.postMessage({
+        live
+      })
+    }, [live])
+
+    let keysPressed = useRef<Record<string, number>>({})
+    useEffect(() => {
       const onKeyDown = (ev: KeyboardEvent) => {
+        // If the editable textarea is in focus, we don't want to process keyboard shortcuts
+        if (document.activeElement === editable.current) {
+          return
+        }
         // Check if this is a repeated key event (key held down)
         // Skip adding to keyString if it's a repeated key
 
@@ -226,67 +250,106 @@ export default function AsemicApp({
           const keyMatch = ev.code.match(/\d/)
           if (keyMatch) {
             if (ev.altKey) {
-              worker.postMessage({
-                live: {
-                  keysIndex: parseInt(keyMatch[0])
+              const key = parseInt(keyMatch[0])
+              const newKeys = [...live.keys]
+              if (live.keys.length < key) {
+                for (let i = 0; i <= key - live.keys.length; i++) {
+                  newKeys.push('')
                 }
-              } as Data)
+              }
+              setLive({
+                ...live,
+                keys: newKeys,
+                index: { type: 'keys', value: key }
+              })
             } else {
-              worker.postMessage({
-                live: {
-                  textIndex: parseInt(keyMatch[0])
+              const key = parseInt(keyMatch[0])
+              const newTexts = [...live.text]
+              if (live.text.length < key) {
+                for (let i = 0; i <= key - live.text.length; i++) {
+                  newTexts.push('')
                 }
-              } as Data)
+              }
+              setLive({
+                ...live,
+                text: newTexts,
+                index: { type: 'text', value: key }
+              })
             }
           }
         } else {
-          if (ev.key === 'Backspace') {
-            if (ev.metaKey) {
-              keyString = ''
-            } else if (ev.altKey) {
-              keyString = keyString.slice(0, keyString.lastIndexOf(' '))
-            } else {
-              keyString = keyString.slice(0, -1)
-            }
-          } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
-            keyString += ev.key
-            keysPressed[ev.key] = performance.now()
-          }
+          switch (live.index.type) {
+            case 'keys':
+              if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
+                keysPressed.current[ev.key] = performance.now()
+              }
+              const newKeys = [...live.keys]
+              newKeys[live.index.value] = Object.keys(keysPressed.current)
+                .sort(x => keysPressed.current[x])
+                .join('')
 
-          worker.postMessage({
-            live: {
-              keys: Object.keys(keysPressed)
-                .sort(x => keysPressed[x])
-                .join(''),
-              text: keyString
-            }
-          } as Data)
+              setLive({ ...live, keys: newKeys })
+
+              break
+            case 'text':
+              let newText = live.text[live.index.value]
+              if (ev.key === 'Backspace') {
+                if (ev.metaKey) {
+                  newText = ''
+                } else if (ev.altKey) {
+                  newText = newText.slice(
+                    0,
+                    newText.includes(' ') ? newText.lastIndexOf(' ') : 0
+                  )
+                } else {
+                  newText = newText.slice(0, -1)
+                }
+              } else if (ev.key.length === 1 && !ev.metaKey && !ev.ctrlKey) {
+                newText += ev.key
+              }
+              const newTexts = [...live.text]
+              newTexts[live.index.value] = newText
+
+              setLive({ ...live, text: newTexts })
+              break
+          }
         }
       }
       const onKeyUp = (ev: KeyboardEvent) => {
-        delete keysPressed[ev.key]
-        worker.postMessage({
-          live: {
-            keys: Object.keys(keysPressed)
-              .sort(x => keysPressed[x])
-              .join('')
-          }
-        } as Data)
+        delete keysPressed.current[ev.key]
+        const newKeys = [...live.keys]
+        newKeys[live.index.value] = Object.keys(keysPressed.current)
+          .sort(x => keysPressed.current[x])
+          .join('')
+        setLive({ ...live, keys: newKeys })
       }
+
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('keyup', onKeyUp)
       return () => {
         window.removeEventListener('keydown', onKeyDown)
         window.removeEventListener('keyup', onKeyUp)
       }
-    }, [])
+    }, [live])
+    return [live]
   }
-  useKeys()
+  const [live] = useKeys()
 
   const [perform, setPerform] = useState(settings.perform)
   useEffect(() => {
     setPerform(settings.perform)
   }, [settings.perform])
+  const [help, setHelp] = useState(false)
+
+  const requestFullscreen = async () => {
+    frame.current.style.setProperty('height', '100vh', 'important')
+    await frame.current?.requestFullscreen()
+  }
+  useEffect(() => {
+    if (settings.fullscreen) {
+      requestFullscreen()
+    }
+  }, [settings.fullscreen])
 
   return (
     <>
@@ -337,13 +400,19 @@ export default function AsemicApp({
           width={1080}></canvas>
         {!perform ? (
           <div className='fixed top-0 left-0 h-full w-[calc(100%-50px)]'>
-            <div className='w-full h-fit flex justify-end'>
+            <div className='w-full h-fit flex'>
+              <div className='text-sm font-mono opacity-50 truncate max-w-[33%] flex-none whitespace-nowrap'>
+                {live.index.type} {live.index.value}:{' '}
+                {live[live.index.type][live.index.value]?.replace('\n', '/ ')}
+              </div>
+              <div className='grow' />
               <button
                 onClick={() => {
                   const currentScene = editable.current.value
                   setScene(editable.current.value)
                   const newSource = source.split('\n---\n')
                   newSource[index + 1] = currentScene
+                  newSource[0] = settingsSource
 
                   if (obsidian) {
                     obsidian.overwriteCurrentFile(
@@ -354,28 +423,35 @@ export default function AsemicApp({
                 }}>
                 save
               </button>
+              <button onClick={requestFullscreen}>fullscreen</button>
               <button
-                onClick={async () => {
-                  try {
-                    invariant(frame.current)
-                    if (!document.fullscreenElement) {
-                      frame.current.style.setProperty(
-                        'height',
-                        '100vh',
-                        'important'
-                      )
-                      await frame.current?.requestFullscreen()
-                    } else {
-                      frame.current.style.setProperty('height', '')
-                      await document.exitFullscreen()
-                    }
-                  } catch (err) {
-                    console.error('Fullscreen error:', err)
-                  }
+                onClick={() => {
+                  setEditSettings(!editSettings)
                 }}>
-                fullscreen
+                settings
+              </button>
+              <button
+                onClick={ev => {
+                  ev.preventDefault()
+                  ev.stopPropagation()
+                  // Blur the editable textarea if it's focused
+                  // if (document.activeElement === editable.current) {
+                  //   editable.current.blur()
+                  // }
+                  // Also blur any other active text inputs/editors
+                  const activeElement = document.activeElement as HTMLElement
+                  // if (activeElement && (
+                  // activeElement.tagName === 'INPUT' ||
+                  // activeElement.tagName === 'TEXTAREA' ||
+                  // activeElement.isContentEditable
+                  // )) {
+                  activeElement.blur()
+                  // }
+                }}>
+                live
               </button>
               <button onClick={() => setPerform(true)}>perform</button>
+              <button onClick={() => setHelp(!help)}>help</button>
               <button
                 onClick={() => {
                   setIndex(index - 1 < 0 ? scenes.length - 1 : index - 1)
@@ -389,32 +465,59 @@ export default function AsemicApp({
                 {'>'}
               </button>
             </div>
-            <textarea
-              ref={editable}
-              defaultValue={scene}
-              className='overflow-auto text-white p-2 text-sm bg-transparent h-full w-full !resize-none !outline-none !border-none opacity-50 text-right !shadow-none'
-              style={{
-                fontFamily: 'Fira Code',
-                whiteSpace: 'pre-wrap',
-                fontWeight: 100,
-                boxShadow: 'none !important'
-              }}
-              onBlur={ev => {
-                ev.preventDefault()
-                ev.stopPropagation()
-              }}
-              onKeyDown={ev => {
-                // ev.stopPropagation()
-                if (ev.key === 'Enter' && ev.metaKey) {
-                  setScene(ev.currentTarget.value)
-                  window.navigator.clipboard.writeText(ev.currentTarget.value)
-                } else if (ev.key === 'f' && ev.metaKey) {
-                  editable.current.blur()
-                  // ev.preventDefault()
+
+            <div className='flex h-full w-full *:flex-none relative'>
+              {editSettings && (
+                <textarea
+                  defaultValue={settingsSource}
+                  onBlur={ev => {
+                    ev.preventDefault()
+                    ev.stopPropagation()
+                  }}
+                  onKeyDown={ev => {
+                    // ev.stopPropagation()
+                    if (ev.key === 'Enter' && ev.metaKey) {
+                      setSettingsSource(ev.currentTarget.value)
+                      window.navigator.clipboard.writeText(
+                        ev.currentTarget.value
+                      )
+                    } else if (ev.key === 'f' && ev.metaKey) {
+                      ev.currentTarget.blur()
+                      // ev.preventDefault()
+                      // ev.stopPropagation()
+                      // frame.current!.focus()
+                    }
+                  }}
+                  className={`relative !font-mono overflow-auto !text-gray-700 p-2 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-left !shadow-none w-1/2 text-light !mix-blend-difference !drop-shadow-xl`}></textarea>
+              )}
+              <textarea
+                ref={editable}
+                defaultValue={scene}
+                className={`relative !font-mono overflow-auto !text-gray-700 p-2 !pt-8 !pr-8 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-right !shadow-none ${
+                  editSettings ? 'w-1/2' : 'w-full'
+                } text-light !mix-blend-difference !drop-shadow-xl`}
+                onBlur={ev => {
+                  ev.preventDefault()
+                  ev.stopPropagation()
+                }}
+                onKeyDown={ev => {
                   // ev.stopPropagation()
-                  // frame.current!.focus()
-                }
-              }}></textarea>
+                  if (ev.key === 'Enter' && ev.metaKey) {
+                    setScene(ev.currentTarget.value)
+                    window.navigator.clipboard.writeText(ev.currentTarget.value)
+                  } else if (ev.key === 'f' && ev.metaKey) {
+                    ev.currentTarget.blur()
+                    // ev.preventDefault()
+                    // ev.stopPropagation()
+                    // frame.current!.focus()
+                  }
+                }}></textarea>
+              {help && (
+                <div className='absolute top-0 left-0 h-full w-full overflow-auto !p-8 bg-black/50 backdrop-blur font-mono whitespace-pre-wrap'>
+                  <div>{readmeText}</div>
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className='fixed top-0 right-10'>

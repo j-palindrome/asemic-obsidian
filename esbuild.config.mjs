@@ -75,7 +75,8 @@ const context = await esbuild.context({
   loader: {
     '.mp3': 'dataurl',
     '.svg': 'text',
-    '.png': 'dataurl'
+    '.png': 'dataurl',
+    '.md': 'text'
   },
   plugins
 })

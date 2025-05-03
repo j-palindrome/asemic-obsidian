@@ -2,7 +2,7 @@ import { Group, Pt } from 'pts'
 import { lerp } from 'three/src/math/MathUtils.js'
 import { AsemicGroup, AsemicPt } from './AsemicPt'
 import { AsemicFont, DefaultFont } from './defaultFont'
-import _, { cloneDeep } from 'lodash'
+import _, { cloneDeep, findLastIndex } from 'lodash'
 import { createNoise2D } from 'simplex-noise'
 import { defaultSettings, splitString } from 'src/plugin/settings'
 import { defaultPreProcess, splitArgs } from './utils'
@@ -57,13 +57,12 @@ export class Parser {
     curve: 0,
     height: 0,
     width: 0,
-    hash: 0
+    hash: 0,
+    seed: 1
   }
   live = {
     keys: [''],
-    text: [''],
-    textIndex: 0,
-    keysIndex: 0
+    text: ['']
   }
   fonts: Record<string, AsemicFont> = { default: new DefaultFont() }
   currentFont = 'default'
@@ -75,31 +74,33 @@ export class Parser {
   output = defaultOutput()
   preProcess = defaultPreProcess()
   source = ''
+  logged = false
   protected functions: Record<string, (args: string) => void> = {
     log: args => {
       const slice = Number(args[0] || '0')
-      console.log(this.log(slice))
+      const text = this.log(slice)
+      if (!this.logged) {
+        console.log(text)
+      }
+    },
+    '#': args => {
+      this.progress.seed = args ? this.evalExpr(args) : this.progress.time
     },
     print: () => {
-      console.log(this.live, this.transform)
-    },
-    't#': args => {
-      this.live.textIndex = Math.floor(this.evalExpr(args))
-    },
-    'k#': args => {
-      this.live.keysIndex = Math.floor(this.evalExpr(args))
+      const text = `text:\n${this.live.text.join(
+        '\n'
+      )}\n\nkeys:${this.live.keys.join('\n')}\n\ntransform:\n${JSON.stringify(
+        this.transform
+      )}`
+      if (!this.logged) {
+        console.log(text)
+      }
     },
     text: args => {
-      this.parse(
-        `"${this.live.text[args ? parseInt(args) : this.live.textIndex]}"`,
-        true
-      )
+      this.parse(`"${this.live.text[args ? parseInt(args) : 0] ?? ''}"`, true)
     },
     keys: args => {
-      this.parse(
-        `"${this.live.keys[args ? parseInt(args) : this.live.keysIndex]}"`,
-        true
-      )
+      this.parse(`"${this.live.keys[args ? parseInt(args) : 0] ?? ''}"`, true)
     },
     within: argsStr => {
       const args = splitArgs(argsStr)
@@ -404,7 +405,7 @@ export class Parser {
         if (key === 'h' && (value === 'window' || value === 'auto')) {
           this.settings[key] = value
         } else {
-          this.settings[key] = parseFloat(value)
+          this.settings[key] = this.evalExpr(value)
         }
       } else {
         this.settings[token] = true
@@ -433,7 +434,7 @@ export class Parser {
 
   protected hash = (n: number): number => {
     // Convert to string, multiply by a prime number, and take the fractional part
-    const val = Math.sin(n) * 43758.5453123
+    const val = Math.sin(n) * (43758.5453123 + this.progress.seed)
     return Math.abs(val - Math.floor(val)) // Return the fractional part (0-1)
   }
 
@@ -573,35 +574,8 @@ export class Parser {
         )
       }
 
-      const startOperators = expr.match(/^[\#\~]/)
-      if (startOperators) {
-        switch (startOperators[0]) {
-          case '#':
-            if (expr.length === 1) {
-              return Math.random()
-            }
-            return this.hash(this.evalExpr(expr.substring(1)))
+      const operations = expr.match(/.+?([\_\+\-\*\/\%])(?!.*[\_\+\*\/\%])/)
 
-          case '~':
-            let sampleIndex = this.noiseIndex
-            while (sampleIndex > this.noiseTable.length - 1) {
-              this.noiseTable.push(createNoise2D())
-            }
-
-            const noise =
-              this.noiseTable[this.noiseIndex](
-                (expr.length === 1 ? 1 : this.evalExpr(expr.substring(1))) *
-                  this.progress.time,
-                0
-              ) *
-                0.5 +
-              0.5
-            this.noiseIndex++
-
-            return noise
-        }
-      }
-      const operations = expr.match(/.+?([\_\+\-\*\/\%])/)
       if (operations) {
         let operators: [number, number]
         switch (operations[1]) {
@@ -609,6 +583,7 @@ export class Parser {
             let [round, after] = splitString(expr, '_')
             if (!after) after = '1'
             const afterNum = this.evalExpr(after)
+
             return Math.floor(this.evalExpr(round) / afterNum) * afterNum
 
           case '+':
@@ -642,6 +617,35 @@ export class Parser {
               x => this.evalExpr(x, false)!
             ) as [number, number]
             return operators[0] % operators[1]
+        }
+      }
+
+      const startOperators = expr.match(/^[\#\~]/)
+      if (startOperators) {
+        switch (startOperators[0]) {
+          case '#':
+            if (expr.length === 1) {
+              return Math.random()
+            }
+            return this.hash(this.evalExpr(expr.substring(1)))
+
+          case '~':
+            let sampleIndex = this.noiseIndex
+            while (sampleIndex > this.noiseTable.length - 1) {
+              this.noiseTable.push(createNoise2D())
+            }
+
+            const noise =
+              this.noiseTable[this.noiseIndex](
+                (expr.length === 1 ? 1 : this.evalExpr(expr.substring(1))) *
+                  this.progress.time,
+                0
+              ) *
+                0.5 +
+              0.5
+            this.noiseIndex++
+
+            return noise
         }
       }
 
@@ -860,8 +864,9 @@ export class Parser {
   }
 
   parse(source: string, silent?: boolean) {
-    const hasDebugged = this.debugged.includes(source)
-    if (!hasDebugged) this.debugged.push(source)
+    this.logged = this.debugged.includes(source)
+    if (!this.logged) this.debugged.push(source)
+
     source = source + ' '
 
     // Predefined functions
@@ -877,7 +882,7 @@ export class Parser {
     let functionCall = false
     let fontDefinition = false
 
-    const parsedString = source.replace(/\/\/[.\n]*?\/\//g, '')
+    const parsedString = source.replace(/\/\/(?:.|\n)*?\/\//g, '')
     for (let i = 0; i < parsedString.length; i++) {
       const char = parsedString[i]
 
@@ -915,26 +920,10 @@ export class Parser {
       }
     }
 
+    let adding = false
     for (let i = 0; i < tokens.length; i++) {
       try {
         let token = tokens[i].trim()
-        let adding = false
-
-        if (token.startsWith('+')) {
-          token = token.substring(1)
-          adding = true
-        } else {
-          if (this.currentCurve.length > 0) {
-            if (this.currentCurve.length === 2) {
-              this.progress.point = 0.5
-              this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
-            }
-            this.curves.push(this.currentCurve)
-            this.currentCurve = new AsemicGroup()
-            this.progress.point = 0
-            this.progress.curve++
-          }
-        }
 
         if (token.startsWith('{{') && token.endsWith('}}')) {
           const parseFontSettings = () => {
@@ -956,6 +945,18 @@ export class Parser {
             }
           }
           parseFontSettings()
+          continue
+        } else if (token.startsWith('((')) {
+          const functionName = token.substring(2, token.indexOf(' '))
+          const text = token.substring(token.indexOf(' ') + 1, token.length - 2)
+          this.functions[functionName] = (args: string) => {
+            const parseArgs = splitArgs(args)
+            let newText = text
+            for (let i = 0; i < parseArgs.length; i++) {
+              newText = newText.replace(`${i}`, parseArgs[i])
+            }
+            this.parse(newText, true)
+          }
           continue
         } else if (token.startsWith('{') && token.endsWith('}')) {
           this.parseTransform(token)
@@ -1014,6 +1015,22 @@ export class Parser {
           continue
         }
 
+        if (token.startsWith('+')) {
+          token = token.substring(1)
+          adding = true
+        } else {
+          if (this.currentCurve.length > 0) {
+            if (this.currentCurve.length === 2) {
+              this.progress.point = 0.5
+              this.currentCurve.splice(1, 0, this.currentCurve.interpolate(0.5))
+            }
+            this.curves.push(this.currentCurve)
+            this.currentCurve = new AsemicGroup()
+            this.progress.point = 0
+            this.progress.curve++
+          }
+        }
+
         if (token.startsWith('[')) {
           const pointsStr = token.substring(1, token.length - 1)
           const pointsTokens = pointsStr.split(' ')
@@ -1029,21 +1046,9 @@ export class Parser {
             this.currentCurve.push(point)
           })
           continue
-        } else if (token.startsWith('((')) {
-          const functionName = token.substring(2, token.indexOf(' '))
-          const text = token.substring(token.indexOf(' ') + 1, token.length - 2)
-          this.functions[functionName] = (args: string) => {
-            const parseArgs = splitArgs(args)
-            let newText = text
-            for (let i = 0; i < parseArgs.length; i++) {
-              newText = newText.replace(`${i}`, parseArgs[i])
-            }
-            this.parse(newText, true)
-          }
-          continue
         } else {
           // Parse function call
-          const functionCall = token.trim().match(/^(\w+)\(((.|\n)*?)\)$/)
+          const functionCall = token.trim().match(/^([^\(]+)\(((?:.|\n)*?)\)$/)
 
           if (functionCall) {
             const functionName = functionCall[1]
@@ -1070,7 +1075,7 @@ export class Parser {
     }
 
     // error detection
-    if (this.settings.debug && !hasDebugged && !silent) {
+    if (this.settings.debug && !this.logged && !silent) {
       const flatCurves = this.curves.flat()
 
       if (

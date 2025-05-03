@@ -1,5 +1,5 @@
-import { AsemicFont } from './defaultFont'
-import { FlatTransform, Parser, Transform } from './parse'
+import { AsemicFont } from './components/defaultFont'
+import { FlatTransform, Parser, Transform } from './components/parse'
 
 declare global {
   interface Data {
@@ -23,6 +23,11 @@ declare global {
 
 declare module '*.worker' {
   export default Worker
+}
+
+declare module '*.md' {
+  const source: string
+  export default source
 }
 
 export {}

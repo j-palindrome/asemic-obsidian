@@ -17,18 +17,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
     parser.preProcess = ev.data.preProcess
   }
   if (ev.data.live) {
-    if (ev.data.live.keysIndex !== undefined) {
-      parser.live.keysIndex = ev.data.live.keysIndex
-    }
-    if (ev.data.live.textIndex !== undefined) {
-      parser.live.textIndex = ev.data.live.textIndex
-    }
-    if (ev.data.live.keys !== undefined) {
-      parser.live.keys[parser.live.keysIndex] = ev.data.live.keys
-    }
-    if (ev.data.live.text !== undefined) {
-      parser.live.text[parser.live.textIndex] = ev.data.live.text
-    }
+    Object.assign(parser.live, ev.data.live)
   }
   if (ev.data.source) {
     parser.reset()
