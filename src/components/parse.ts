@@ -33,16 +33,6 @@ const defaultOutput = () =>
     osc: { path: string; args: (string | number | [number, number])[] }[]
   })
 
-export const constants = {
-  countNum: /N/g,
-  index: /I/g,
-  time: /T/g,
-  height: /H/g,
-  pointProgress: /P/g,
-  curveProgress: /C/g,
-  pixels: /px/g
-}
-
 export class Parser {
   startTime = performance.now()
   curves: AsemicGroup[] = []
@@ -58,11 +48,28 @@ export class Parser {
     height: 0,
     width: 0,
     hash: 0,
-    seed: 1
+    seed: 1,
+    index: 0,
+    countNum: 0
   }
   live = {
     keys: [''],
     text: ['']
+  }
+  constants = {
+    N: () => this.progress.countNum,
+    I: () => this.progress.index,
+    T: () => this.progress.time,
+    H: () => {
+      const height = this.progress.height / this.progress.width
+      return '*' + height.toFixed(3)
+    },
+    P: () => this.progress.point,
+    C: () => this.progress.curve,
+    px: () => {
+      const pixels = this.progress.width
+      return '*' + (1 / pixels).toFixed(3)
+    }
   }
   fonts: Record<string, AsemicFont> = { default: new DefaultFont() }
   currentFont = 'default'
@@ -242,15 +249,15 @@ export class Parser {
       const [count, content] = splitString(argsStr, ' ')
       const countNum = this.evalExpr(count)
 
+      const prevIndex = this.progress.index
+      const prevCountNum = this.progress.countNum
+      this.progress.countNum = prevCountNum
       for (let i = 0; i < countNum; i++) {
-        this.parse(
-          content
-            .trim()
-            .replace(constants.index, i.toString())
-            .replace(constants.countNum, countNum.toString()),
-          true
-        )
+        this.progress.index = i
+        this.parse(content, true)
       }
+      this.progress.index = prevIndex
+      this.progress.countNum = prevCountNum
     }
   }
 
@@ -494,33 +501,9 @@ export class Parser {
             expr = expr.replace(original, eval(expression))
           }
         }
-        if (expr.includes('T')) {
-          // vary according to t
-          expr = expr.replace(constants.time, this.progress.time.toFixed(3))
-        }
-        if (expr.includes('H')) {
-          const height = this.progress.height / this.progress.width
-          if (expr.length === 1) {
-            return height
-          } else expr = expr.replace(constants.height, `*${height.toFixed(3)}`)
-        }
-        if (expr.includes('P')) {
-          expr = expr.replace(
-            constants.pointProgress,
-            this.progress.point.toFixed(3)
-          )
-        }
-        if (expr.includes('C')) {
-          expr = expr.replace(
-            constants.curveProgress,
-            this.progress.curve.toFixed(3)
-          )
-        }
-        if (expr.includes('px')) {
-          expr = expr.replace(
-            constants.pixels,
-            `*${(1 / this.progress.width).toFixed(3)}`
-          )
+        for (let key of Object.keys(this.constants)) {
+          const regex = new RegExp(key, 'g')
+          expr = expr.replace(regex, this.constants[key]())
         }
       }
 
