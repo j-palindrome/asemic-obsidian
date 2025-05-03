@@ -84,7 +84,6 @@ export class Parser {
   noiseTable: ((x: number, y: number) => number)[] = []
   noiseIndex = 0
   noise = createNoise2D()
-  lastWithin = 0
   output = defaultOutput()
   preProcess = defaultPreProcess()
   source = ''
@@ -120,18 +119,14 @@ export class Parser {
       const args = splitArgs(argsStr)
       const point0 = this.parsePoint(args[0])
       const point1 = this.parsePoint(args[1])
-      const slice = Number(args[2] ?? this.lastWithin)
+      const rest = argsStr.substring(args[0].length + args[1].length + 2)
+      const withinStart = this.curves.length
+      console.log('parsing', rest, point0, point1)
+      this.parse(rest, true)
 
       const bounds = new AsemicGroup(
-        ...(this.curves.slice(slice).flat() as AsemicPt[])
+        ...(this.curves.slice(withinStart).flat() as AsemicPt[])
       ).boundingBox()
-
-      const sub = bounds[0].$subtract(point0)
-      //   .$multiply(
-      //   point1.$subtract(point0).$divide(
-      //     bounds[1].$subtract(bounds[0])
-      //   )
-      //   )
 
       // Calculate scaling factor based on aspect ratio
       const scaleX = (point1.x - point0.x) / (bounds[1].x - bounds[0].x)
@@ -143,11 +138,10 @@ export class Parser {
       const centerDifference = targetBoundsCenter.$subtract(
         sourceBoundsCenter.scale(scale, point0)
       )
-      this.curves.slice(slice).forEach(curve => {
+      this.curves.slice(withinStart).forEach(curve => {
         curve.subtract(bounds[0]).scale(scale, [0, 0]).add(point0)
         // .add(centerDifference)
       })
-      this.lastWithin = this.curves.length
     },
     osc: argsStr => {
       const args = splitArgs(argsStr)
@@ -465,11 +459,28 @@ export class Parser {
     const angle = usedEnd.$subtract(start).angle()
     const distance = usedEnd.$subtract(start).magnitude()
 
+    // instead of the curve by default being UP, it's whatever the rotation is and THEN up
+    // Check the angle to determine if we need to flip the points vertically
+    const needsFlip =
+      this.transform.scale.x < 0
+        ? Math.abs(angle) >= Math.PI / 2 && Math.abs(angle) < (3 * Math.PI) / 2
+        : Math.abs(angle) > Math.PI / 2 && Math.abs(angle) <= (3 * Math.PI) / 2
+    const correctedAddPoints = needsFlip
+      ? addPoints.map(pt => new Pt([pt.x, -pt.y]))
+      : addPoints
+    const correctedMultiplyPoints = needsFlip
+      ? multiplyPoints.map(pt => new Pt([pt.x, -pt.y]))
+      : multiplyPoints
     const mappedCurve = [
       start,
-      ...multiplyPoints.map((x, i) => {
-        x.scale([distance, this.transform.scale.y], [0, 0])
-          .add(addPoints[i].scale([this.transform.scale.x, 1], [0, 0]))
+      ...correctedMultiplyPoints.map((x, i) => {
+        x.scale([distance, Math.abs(this.transform.scale.y)], [0, 0])
+          .add(
+            correctedAddPoints[i].scale(
+              [Math.abs(this.transform.scale.x), 1],
+              [0, 0]
+            )
+          )
           .rotate2D(angle, [0, 0])
           .add(start)
         this.progress.point = (i + 1) / (multiplyPoints.length + 2 - 1)
@@ -477,6 +488,7 @@ export class Parser {
       }),
       end
     ]
+
     this.currentCurve.push(...mappedCurve)
   }
 
@@ -783,6 +795,18 @@ export class Parser {
     return point
   }
 
+  protected cloneTransform(transform: Transform): Transform {
+    const newTransform = {} as Transform
+    for (let key of Object.keys(transform)) {
+      if (transform[key] instanceof Pt) {
+        newTransform[key] = transform[key].clone()
+      } else {
+        newTransform[key] = transform[key]
+      }
+    }
+    return newTransform
+  }
+
   protected parseTransform(token: string) {
     // { ...transforms }
     const transformStr = token.trim().substring(1, token.length - 1)
@@ -792,15 +816,7 @@ export class Parser {
       if (transform === '<') {
         Object.assign(this.transform, this.transforms.pop()!)
       } else if (transform === '>') {
-        const newTransform = {} as Transform
-        for (let key of Object.keys(this.transform)) {
-          if (this.transform[key] instanceof Pt) {
-            newTransform[key] = this.transform[key].clone()
-          } else {
-            newTransform[key] = this.transform[key]
-          }
-        }
-        this.transforms.push(newTransform)
+        this.transforms.push(this.cloneTransform(this.transform))
       } else if (transform === '!') {
         // Reset all transformations
         this.transform.scale.set([1, 1])
@@ -970,6 +986,10 @@ export class Parser {
         if (token.startsWith('+')) {
           token = token.substring(1)
           adding = true
+        } else {
+          if (this.currentCurve.length > 0) {
+            addCurve()
+          }
         }
 
         if (token.startsWith('{{') && token.endsWith('}}')) {
@@ -1068,12 +1088,6 @@ export class Parser {
           }
 
           continue
-        }
-
-        if (!adding) {
-          if (this.currentCurve.length > 0) {
-            addCurve()
-          }
         }
 
         if (token.startsWith('[')) {
