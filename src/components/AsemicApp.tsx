@@ -1,7 +1,7 @@
 import { Curve, Pt } from 'pts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import invariant from 'tiny-invariant'
-import { flatMap, keysIn, max } from 'lodash'
+import { flatMap, keysIn, max, set } from 'lodash'
 import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
@@ -55,6 +55,27 @@ export default function AsemicApp({
     }
   }, [settings])
 
+  const useErrors = () => {
+    const errorsRef = useRef<string[]>([])
+    const selectErrorsRef = useRef<HTMLDivElement>(null)
+    const [hasErrors, setHasErrors] = useState(false)
+    const setErrors = (newErrors: string[]) => {
+      errorsRef.current = newErrors
+      if (hasErrors && newErrors.length == 0) setHasErrors(false)
+      if (!hasErrors && newErrors.length > 0) setHasErrors(true)
+      if (selectErrorsRef.current) {
+        selectErrorsRef.current.innerHTML = errorsRef.current.join('\n')
+      }
+    }
+    useEffect(() => {
+      if (hasErrors && selectErrorsRef.current) {
+        selectErrorsRef.current.innerHTML = errorsRef.current.join('\n')
+      }
+    }, [hasErrors])
+    return [setErrors, hasErrors, selectErrorsRef] as const
+  }
+  const [setErrors, hasErrors, selectErrorsRef] = useErrors()
+
   const worker = useMemo(() => new AsemicWorker() as Worker, [])
   const lastTransform = useRef<FlatTransform>(null!)
   const setup = () => {
@@ -104,14 +125,6 @@ export default function AsemicApp({
       onscreen.current = canvas.current.getContext('bitmaprenderer')!
 
       window.addEventListener('resize', onResize)
-      // onscreen.init().then(() => {
-      //   onResize()
-
-      //   worker.postMessage({
-      //     source: scene,
-      //     settings
-      //   })
-      // })
 
       const parseMessages = (evt: { data: DataBack }) => {
         if (evt.data.settings) {
@@ -162,6 +175,9 @@ export default function AsemicApp({
           evt.data.osc.forEach(({ path, args }) => {
             client.send({ address: path, args: args as ArgumentType[] })
           })
+        }
+        if (evt.data.errors) {
+          setErrors(evt.data.errors)
         }
       }
       worker.onmessage = parseMessages
@@ -225,6 +241,7 @@ export default function AsemicApp({
       text: [''],
       index: { type: 'text', value: 0 }
     })
+    const [isLive, setIsLive] = useState(false)
 
     useEffect(() => {
       worker.postMessage({
@@ -235,10 +252,6 @@ export default function AsemicApp({
     let keysPressed = useRef<Record<string, number>>({})
     useEffect(() => {
       const onKeyDown = (ev: KeyboardEvent) => {
-        // If the editable textarea is in focus, we don't want to process keyboard shortcuts
-        if (document.activeElement === editable.current) {
-          return
-        }
         // Check if this is a repeated key event (key held down)
         // Skip adding to keyString if it's a repeated key
 
@@ -323,16 +336,17 @@ export default function AsemicApp({
         setLive({ ...live, keys: newKeys })
       }
 
+      if (!isLive) return
       window.addEventListener('keydown', onKeyDown)
       window.addEventListener('keyup', onKeyUp)
       return () => {
         window.removeEventListener('keydown', onKeyDown)
         window.removeEventListener('keyup', onKeyUp)
       }
-    }, [live])
-    return [live]
+    }, [live, isLive])
+    return [live, isLive, setIsLive] as const
   }
-  const [live] = useKeys()
+  const [live, isLive, setIsLive] = useKeys()
 
   const [perform, setPerform] = useState(settings.perform)
   useEffect(() => {
@@ -398,7 +412,7 @@ export default function AsemicApp({
           height={1080}
           width={1080}></canvas>
         {!perform ? (
-          <div className='fixed top-0 left-0 h-full w-[calc(100%-50px)]'>
+          <div className='fixed top-1 left-1 h-full w-[calc(100%-50px)]'>
             <div className='w-full h-fit flex'>
               <div className='text-sm font-mono opacity-50 truncate max-w-[33%] flex-none whitespace-nowrap'>
                 {live.index.type} {live.index.value}:{' '}
@@ -431,6 +445,7 @@ export default function AsemicApp({
                 settings
               </button>
               <button
+                className={`${isLive ? '!bg-blue-200/40' : ''}`}
                 onClick={ev => {
                   ev.preventDefault()
                   ev.stopPropagation()
@@ -442,10 +457,12 @@ export default function AsemicApp({
                   const activeElement = document.activeElement as HTMLElement
                   // if (activeElement && (
                   // activeElement.tagName === 'INPUT' ||
+
                   // activeElement.tagName === 'TEXTAREA' ||
                   // activeElement.isContentEditable
                   // )) {
                   activeElement.blur()
+                  setIsLive(!isLive)
                   // }
                 }}>
                 live
@@ -489,6 +506,9 @@ export default function AsemicApp({
                     ev.preventDefault()
                     ev.stopPropagation()
                   }}
+                  onFocus={ev => {
+                    if (isLive) setIsLive(false)
+                  }}
                   onKeyDown={ev => {
                     // ev.stopPropagation()
                     if (ev.key === 'Enter' && ev.metaKey) {
@@ -503,30 +523,46 @@ export default function AsemicApp({
                       // frame.current!.focus()
                     }
                   }}
-                  className={`relative !font-mono overflow-auto !text-gray-700 p-2 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-left !shadow-none w-1/2 text-light !mix-blend-difference !drop-shadow-xl`}></textarea>
+                  className={`relative !font-mono overflow-auto !text-blue-400 p-2 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-left !shadow-none w-1/2 text-light !mix-blend-difference !drop-shadow-xl`}></textarea>
               )}
-              <textarea
-                ref={editable}
-                defaultValue={scene}
-                className={`relative !font-mono overflow-auto !text-gray-700 p-2 !pt-8 !pr-8 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-right !shadow-none ${
+              <div
+                className={`${
                   editSettings ? 'w-1/2' : 'w-full'
-                } text-light !mix-blend-difference !drop-shadow-xl`}
-                onBlur={ev => {
-                  ev.preventDefault()
-                  ev.stopPropagation()
-                }}
-                onKeyDown={ev => {
-                  // ev.stopPropagation()
-                  if (ev.key === 'Enter' && ev.metaKey) {
-                    setScene(ev.currentTarget.value)
-                    window.navigator.clipboard.writeText(ev.currentTarget.value)
-                  } else if (ev.key === 'f' && ev.metaKey) {
-                    ev.currentTarget.blur()
-                    // ev.preventDefault()
+                } h-full flex flex-col`}>
+                <textarea
+                  ref={editable}
+                  defaultValue={scene}
+                  className={`relative !font-mono overflow-auto !text-blue-400 p-2 !pt-8 !pr-8 text-sm bg-transparent ${
+                    hasErrors ? 'h-1/2' : 'h-full'
+                  } !resize-none !outline-none !border-none text-right !shadow-none w-full text-light !mix-blend-difference !drop-shadow-xl`}
+                  onBlur={ev => {
+                    ev.preventDefault()
+                    ev.stopPropagation()
+                  }}
+                  onFocus={ev => {
+                    if (isLive) setIsLive(false)
+                  }}
+                  onKeyDown={ev => {
                     // ev.stopPropagation()
-                    // frame.current!.focus()
-                  }
-                }}></textarea>
+                    if (ev.key === 'Enter' && ev.metaKey) {
+                      setScene(ev.currentTarget.value)
+                      window.navigator.clipboard.writeText(
+                        ev.currentTarget.value
+                      )
+                    } else if (ev.key === 'f' && ev.metaKey) {
+                      ev.currentTarget.blur()
+                      // ev.preventDefault()
+                      // ev.stopPropagation()
+                      // frame.current!.focus()
+                    }
+                  }}></textarea>
+                {hasErrors && (
+                  <div
+                    ref={selectErrorsRef}
+                    className='relative !font-mono !overflow-auto !text-red-400 p-2 !pt-8 !pr-8 text-sm bg-transparent h-1/2  text-right !shadow-none w-full !mix-blend-difference !drop-shadow-xl whitespace-pre-wrap break-words'></div>
+                )}
+              </div>
+
               {help && (
                 <div className='absolute top-0 left-0 h-full w-full overflow-auto !p-8 bg-black/50 backdrop-blur font-mono whitespace-pre-wrap'>
                   <div>{readmeText}</div>

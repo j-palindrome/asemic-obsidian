@@ -34,9 +34,10 @@ const defaultTransform = () => ({
   rotation: 0
 })
 const defaultOutput = () =>
-  ({ osc: [], curves: [] } as {
+  ({ osc: [], curves: [], errors: [] } as {
     curves: any[]
     osc: { path: string; args: (string | number | [number, number])[] }[]
+    errors: string[]
   })
 
 export class Parser {
@@ -66,16 +67,16 @@ export class Parser {
   constants = {
     N: () => this.progress.countNum,
     I: () => this.progress.index,
-    T: () => this.progress.time,
+    T: () => this.progress.time.toFixed(3),
     H: () => {
       const height = this.progress.height / this.progress.width
-      return '*' + height.toFixed(3)
+      return '*' + height.toFixed(4)
     },
     P: () => this.progress.point,
     C: () => this.progress.curve,
     px: () => {
       const pixels = this.progress.width
-      return '*' + (1 / pixels).toFixed(3)
+      return '*' + (1 / pixels).toFixed(5)
     }
   }
   fonts: Record<string, AsemicFont> = { default: new DefaultFont() }
@@ -93,11 +94,11 @@ export class Parser {
       const slice = Number(args[0] || '0')
       const text = this.log(slice)
       if (!this.logged) {
-        console.log(text)
+        this.output.errors.push(text)
       }
     },
     '#': args => {
-      this.progress.seed = args ? this.evalExpr(args) : this.progress.time
+      this.progress.seed = args ? this.evalExpr(args) : 1
     },
     print: () => {
       const text = `text:\n${this.live.text.join(
@@ -106,7 +107,7 @@ export class Parser {
         this.transform
       )}`
       if (!this.logged) {
-        console.log(text)
+        this.output.errors.push(text)
       }
     },
     text: args => {
@@ -121,7 +122,7 @@ export class Parser {
       const point1 = this.parsePoint(args[1])
       const rest = argsStr.substring(args[0].length + args[1].length + 2)
       const withinStart = this.curves.length
-      console.log('parsing', rest, point0, point1)
+
       this.parse(rest, true)
 
       const bounds = new AsemicGroup(
@@ -267,7 +268,6 @@ export class Parser {
   }
 
   reset() {
-    this.lastWithin = 0
     this.noiseIndex = 0
     for (let font of Object.keys(this.fonts)) this.fonts[font].reset()
     this.curves = []
@@ -461,22 +461,33 @@ export class Parser {
 
     // instead of the curve by default being UP, it's whatever the rotation is and THEN up
     // Check the angle to determine if we need to flip the points vertically
-    const needsFlip =
-      this.transform.scale.x < 0
-        ? Math.abs(angle) >= Math.PI / 2 && Math.abs(angle) < (3 * Math.PI) / 2
-        : Math.abs(angle) > Math.PI / 2 && Math.abs(angle) <= (3 * Math.PI) / 2
-    const correctedAddPoints = needsFlip
-      ? addPoints.map(pt => new Pt([pt.x, -pt.y]))
-      : addPoints
-    const correctedMultiplyPoints = needsFlip
-      ? multiplyPoints.map(pt => new Pt([pt.x, -pt.y]))
+    let fixedAngle =
+      (angle - this.transform.rotation * Math.PI * 2) % (Math.PI * 2)
+    // Round fixedAngle to the nearest 1/360 increment
+    const backwards =
+      (this.transform.scale.x < 0 && this.transform.scale.y > 0) ||
+      (this.transform.scale.y < 0 && this.transform.scale.x >= 0)
+    fixedAngle =
+      (backwards ? Math.ceil(fixedAngle * 360) : Math.floor(fixedAngle * 360)) /
+      360
+    if (fixedAngle < 0) fixedAngle += Math.PI * 2
+    let needsFlip = backwards
+      ? fixedAngle >= Math.PI / 2 && fixedAngle < (3 * Math.PI) / 2
+      : fixedAngle > Math.PI / 2 && fixedAngle <= (3 * Math.PI) / 2
+    if (this.transform.scale.y < 0) needsFlip = !needsFlip
+    const fixedMultiplyPoints = needsFlip
+      ? multiplyPoints.map(pt => pt.$multiply([1, -1]))
       : multiplyPoints
+    const fixedAddPoints = needsFlip
+      ? addPoints.map(pt => pt.$multiply([1, -1]))
+      : addPoints
+
     const mappedCurve = [
       start,
-      ...correctedMultiplyPoints.map((x, i) => {
+      ...fixedMultiplyPoints.map((x, i) => {
         x.scale([distance, Math.abs(this.transform.scale.y)], [0, 0])
           .add(
-            correctedAddPoints[i].scale(
+            fixedAddPoints[i].scale(
               [Math.abs(this.transform.scale.x), 1],
               [0, 0]
             )
@@ -641,7 +652,6 @@ export class Parser {
             if (expr.length === 1) {
               return Math.random()
             }
-            this.progress.seed++
             return this.hash(this.evalExpr(expr.substring(1)))
 
           case '~':
@@ -996,9 +1006,9 @@ export class Parser {
           const parseFontSettings = () => {
             token = token.substring(2, token.length - 2).trim()
 
-            const fontName = token.match(/^[a-zA-Z0-9]+/)
+            const fontName = token.match(/^([a-zA-Z0-9]+)\s/)
             if (fontName) {
-              this.currentFont = fontName[0]
+              this.currentFont = fontName[1]
               token = token.replace(fontName[0], '')
             }
             if (!this.fonts[this.currentFont]) {
@@ -1123,7 +1133,7 @@ export class Parser {
           }
         }
       } catch (e) {
-        console.error(`Parsing failed: ${tokens[i]}; ${e}`)
+        this.output.errors.push(`Parsing failed: ${tokens[i]}; ${e}`)
         continue
       }
     }
@@ -1139,7 +1149,7 @@ export class Parser {
       if (
         !flatCurves.find(x => x[0] <= 1 && x[0] >= 0 && x[1] <= 1 && x[1] >= 0)
       ) {
-        console.warn('Asemic: No points within [0,0] and [1,1]')
+        this.output.errors.push('Asemic: No points within [0,0] and [1,1]')
       }
     }
   }

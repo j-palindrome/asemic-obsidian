@@ -13,11 +13,14 @@ declare global {
       keysIndex?: number
       textIndex?: number
     }
+    error?: string
   }
   type DataBack = {
     response?: 'editable'
     bitmap?: ImageBitmap
-    [string: string]: any
+    errors?: string[]
+    settings?: Parser['settings']
+    lastTransform?: FlatTransform
   } & Partial<Parser['output']>
 }
 
