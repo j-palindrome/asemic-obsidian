@@ -14,7 +14,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
     self.postMessage({ settings: parser.settings })
   }
   if (ev.data.preProcess) {
-    parser.preProcess = ev.data.preProcess
+    parser.preProcessing = ev.data.preProcess
   }
   if (ev.data.live) {
     Object.assign(parser.live, ev.data.live)
@@ -22,7 +22,7 @@ self.onmessage = (ev: MessageEvent<Data>) => {
   if (ev.data.source) {
     parser.reset()
     parser.source = ev.data.source
-    parser.doPreProcess()
+    parser.preProcess()
     parser.parse(parser.source)
     parser.format()
 

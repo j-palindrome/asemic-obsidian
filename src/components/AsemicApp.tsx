@@ -1,7 +1,7 @@
 import { Curve, Pt } from 'pts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import invariant from 'tiny-invariant'
-import { flatMap, keysIn, max, set } from 'lodash'
+import { flatMap, isEqual, keysIn, max, set } from 'lodash'
 import { defaultSettings } from 'src/plugin/settings'
 // @ts-ignore
 import AsemicWorker from './asemic.worker'
@@ -60,6 +60,7 @@ export default function AsemicApp({
     const selectErrorsRef = useRef<HTMLDivElement>(null)
     const [hasErrors, setHasErrors] = useState(false)
     const setErrors = (newErrors: string[]) => {
+      if (isEqual(errorsRef.current, newErrors)) return
       errorsRef.current = newErrors
       if (hasErrors && newErrors.length == 0) setHasErrors(false)
       if (!hasErrors && newErrors.length > 0) setHasErrors(true)
@@ -71,7 +72,7 @@ export default function AsemicApp({
       if (hasErrors && selectErrorsRef.current) {
         selectErrorsRef.current.innerHTML = errorsRef.current.join('\n')
       }
-    }, [hasErrors])
+    }, [hasErrors, editSettings])
     return [setErrors, hasErrors, selectErrorsRef] as const
   }
   const [setErrors, hasErrors, selectErrorsRef] = useErrors()
@@ -412,7 +413,7 @@ export default function AsemicApp({
           height={1080}
           width={1080}></canvas>
         {!perform ? (
-          <div className='fixed top-1 left-1 h-full w-[calc(100%-50px)]'>
+          <div className='fixed top-1 left-1 h-full w-[calc(100%-50px)] flex flex-col'>
             <div className='w-full h-fit flex'>
               <div className='text-sm font-mono opacity-50 truncate max-w-[33%] flex-none whitespace-nowrap'>
                 {live.index.type} {live.index.value}:{' '}
@@ -498,70 +499,67 @@ export default function AsemicApp({
               </button>
             </div>
 
-            <div className='flex h-full w-full *:flex-none relative'>
-              {editSettings && (
-                <textarea
-                  defaultValue={settingsSource}
-                  onBlur={ev => {
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                  }}
-                  onFocus={ev => {
-                    if (isLive) setIsLive(false)
-                  }}
-                  onKeyDown={ev => {
-                    // ev.stopPropagation()
-                    if (ev.key === 'Enter' && ev.metaKey) {
-                      setSettingsSource(ev.currentTarget.value)
-                      window.navigator.clipboard.writeText(
-                        ev.currentTarget.value
-                      )
-                    } else if (ev.key === 'f' && ev.metaKey) {
-                      ev.currentTarget.blur()
-                      // ev.preventDefault()
-                      // ev.stopPropagation()
-                      // frame.current!.focus()
-                    }
-                  }}
-                  className={`relative !font-mono overflow-auto !text-blue-400 p-2 text-sm bg-transparent h-full !resize-none !outline-none !border-none text-left !shadow-none w-1/2 text-light !mix-blend-difference !drop-shadow-xl`}></textarea>
-              )}
-              <div
-                className={`${
+            <div className='flex h-full w-full *:flex-none relative opacity-70'>
+              <textarea
+                ref={editable}
+                defaultValue={scene}
+                className={`relative !font-mono overflow-auto !text-blue-400 p-2 !py-4 !pr-8 text-sm bg-transparent !resize-none !outline-none !border-none text-left !shadow-none text-light !mix-blend-difference !drop-shadow-xl ${
                   editSettings ? 'w-1/2' : 'w-full'
-                } h-full flex flex-col`}>
-                <textarea
-                  ref={editable}
-                  defaultValue={scene}
-                  className={`relative !font-mono overflow-auto !text-blue-400 p-2 !pt-8 !pr-8 text-sm bg-transparent ${
-                    hasErrors ? 'h-1/2' : 'h-full'
-                  } !resize-none !outline-none !border-none text-right !shadow-none w-full text-light !mix-blend-difference !drop-shadow-xl`}
-                  onBlur={ev => {
-                    ev.preventDefault()
-                    ev.stopPropagation()
-                  }}
-                  onFocus={ev => {
-                    if (isLive) setIsLive(false)
-                  }}
-                  onKeyDown={ev => {
+                }`}
+                onBlur={ev => {
+                  ev.preventDefault()
+                  ev.stopPropagation()
+                }}
+                onFocus={ev => {
+                  if (isLive) setIsLive(false)
+                }}
+                onKeyDown={ev => {
+                  // ev.stopPropagation()
+                  if (ev.key === 'Enter' && ev.metaKey) {
+                    setScene(ev.currentTarget.value)
+                    window.navigator.clipboard.writeText(ev.currentTarget.value)
+                  } else if (ev.key === 'f' && ev.metaKey) {
+                    ev.currentTarget.blur()
+                    // ev.preventDefault()
                     // ev.stopPropagation()
-                    if (ev.key === 'Enter' && ev.metaKey) {
-                      setScene(ev.currentTarget.value)
-                      window.navigator.clipboard.writeText(
-                        ev.currentTarget.value
-                      )
-                    } else if (ev.key === 'f' && ev.metaKey) {
-                      ev.currentTarget.blur()
-                      // ev.preventDefault()
+                    // frame.current!.focus()
+                  }
+                }}></textarea>
+              {editSettings && (
+                <div className={`h-full w-1/2 flex flex-col`}>
+                  <textarea
+                    defaultValue={settingsSource}
+                    onBlur={ev => {
+                      ev.preventDefault()
+                      ev.stopPropagation()
+                    }}
+                    onFocus={ev => {
+                      if (isLive) setIsLive(false)
+                    }}
+                    onKeyDown={ev => {
                       // ev.stopPropagation()
-                      // frame.current!.focus()
-                    }
-                  }}></textarea>
-                {hasErrors && (
-                  <div
-                    ref={selectErrorsRef}
-                    className='relative !font-mono !overflow-auto !text-red-400 p-2 !pt-8 !pr-8 text-sm bg-transparent h-1/2  text-right !shadow-none w-full !mix-blend-difference !drop-shadow-xl whitespace-pre-wrap break-words'></div>
-                )}
-              </div>
+                      if (ev.key === 'Enter' && ev.metaKey) {
+                        setSettingsSource(ev.currentTarget.value)
+                        window.navigator.clipboard.writeText(
+                          ev.currentTarget.value
+                        )
+                      } else if (ev.key === 'f' && ev.metaKey) {
+                        ev.currentTarget.blur()
+                        // ev.preventDefault()
+                        // ev.stopPropagation()
+                        // frame.current!.focus()
+                      }
+                    }}
+                    className={`relative !font-mono overflow-auto !text-blue-400 p-2 text-sm bg-transparent !resize-none !outline-none !border-none text-right !shadow-none w-full text-light !mix-blend-difference !drop-shadow-xl ${
+                      hasErrors ? 'h-1/2' : 'h-full'
+                    }`}></textarea>
+                  {hasErrors && (
+                    <div
+                      ref={selectErrorsRef}
+                      className='relative !font-mono !overflow-auto !text-red-400 p-2 !py-4 !pr-8 text-sm bg-transparent h-1/2 text-right !shadow-none w-full !mix-blend-difference !drop-shadow-xl whitespace-pre-wrap break-words'></div>
+                  )}
+                </div>
+              )}
 
               {help && (
                 <div className='absolute top-0 left-0 h-full w-full overflow-auto !p-8 bg-black/50 backdrop-blur font-mono whitespace-pre-wrap'>

@@ -41,10 +41,10 @@ const defaultOutput = () =>
   })
 
 export class Parser {
+  debugged = new Map<string, { errors: string[] }>()
   startTime = performance.now()
   curves: AsemicGroup[] = []
   settings = defaultSettings
-  debugged: string[] = []
   currentCurve: AsemicGroup = new AsemicGroup()
   transform: Transform = defaultTransform()
   transforms: Transform[] = []
@@ -86,16 +86,13 @@ export class Parser {
   noiseIndex = 0
   noise = createNoise2D()
   output = defaultOutput()
-  preProcess = defaultPreProcess()
+  preProcessing = defaultPreProcess()
   source = ''
-  logged = false
   protected functions: Record<string, (args: string) => void> = {
     log: args => {
       const slice = Number(args[0] || '0')
       const text = this.log(slice)
-      if (!this.logged) {
-        this.output.errors.push(text)
-      }
+      this.output.errors.push(text)
     },
     '#': args => {
       this.progress.seed = args ? this.evalExpr(args) : 1
@@ -106,9 +103,7 @@ export class Parser {
       )}\n\nkeys:${this.live.keys.join('\n')}\n\ntransform:\n${JSON.stringify(
         this.transform
       )}`
-      if (!this.logged) {
-        this.output.errors.push(text)
-      }
+      this.output.errors.push(text)
     },
     text: args => {
       this.parse(`"${this.live.text[args ? parseInt(args) : 0] ?? ''}"`, true)
@@ -432,11 +427,11 @@ export class Parser {
     this.parse(rest.join('\n'), true)
   }
 
-  doPreProcess() {
-    for (let replacement of Object.keys(this.preProcess.replacements)) {
+  preProcess() {
+    for (let replacement of Object.keys(this.preProcessing.replacements)) {
       this.source = this.source.replace(
         replacement,
-        this.preProcess.replacements[replacement]
+        this.preProcessing.replacements[replacement]
       )
     }
   }
@@ -933,9 +928,6 @@ export class Parser {
       this.progress.curve++
     }
 
-    this.logged = this.debugged.includes(source)
-    if (!this.logged) this.debugged.push(source)
-
     source = source + ' '
 
     // Predefined functions
@@ -1143,13 +1135,13 @@ export class Parser {
     }
 
     // error detection
-    if (this.settings.debug && !this.logged && !silent) {
+    if (this.settings.debug && !this.debugged[source] && !silent) {
       const flatCurves = this.curves.flat()
 
       if (
         !flatCurves.find(x => x[0] <= 1 && x[0] >= 0 && x[1] <= 1 && x[1] >= 0)
       ) {
-        this.output.errors.push('Asemic: No points within [0,0] and [1,1]')
+        this.output.errors.push('No points within [0,0] and [1,1]')
       }
     }
   }

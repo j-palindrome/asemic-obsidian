@@ -6,7 +6,7 @@ declare global {
     source?: string
     progress?: Partial<Parser['progress']>
     settingsSource?: string
-    preProcess?: Parser['preProcess']
+    preProcess?: Parser['preProcessing']
     live: {
       keys?: string
       text?: string
